@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+        <meta charset="utf-8" />
+        <title>BlackBox Blog - Intro</title>
+        <link rel="stylesheet" href="/theme/css/main.css" />
+
+        <!--[if IE]>
+            <script src="https://html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+</head>
+
+<body id="index" class="home">
+        <header id="banner" class="body">
+                <h1><a href="/">BlackBox Blog  <strong>A ramble of software mistakes, mishaps and mayhem to make you feel good about yourself</strong></a></h1>
+                <nav><ul>
+                    <li class="active"><a href="/category/intro.html">Intro</a></li>
+                </ul></nav>
+        </header><!-- /#banner -->
+
+            <aside id="featured" class="body">
+                <article>
+                    <h1 class="entry-title"><a href="/patient-zero.html">Patient Zero</a></h1>
+<footer class="post-info">
+        <abbr class="published" title="2017-06-20T19:52:00+00:00">
+                Published: June 20, 2017
+        </abbr>
+
+        <address class="vcard author">
+                By                         <a class="url fn" href="/author/blackboxswgmailcom.html">blackboxsw@gmail.com</a>
+        </address>
+<p>In <a href="/category/intro.html">Intro</a>.</p>
+
+</footer><!-- /.post-info --><h2>Stardate: 3 days after Father's Day</h2>
+<p>I'm sleep deprived and exhausted from the amazing Father's Day present my wife and I got this year. With the joys of parenthood, comes the thought that if I don't write something down somewhere, I'll forget it or misplace it. That thought will forever be lost as my mind drifts to more pressing concerns such as "Have I changed the dog's diaper?" or "Have I put the baby outside yet for his potty break?".</p>
+<h2>Introduction</h2>
+<p>The intent of this little molecule in the internet is to create a collection of techincal decisions, questions or software solutions I've come across in my day to day work at Canonical improving Ubuntu system's management. I've been here at Canonical working on the best software distribution ever for about 6 years now, formerly 10+ years in HP Linux &amp; Cloud organization and spent a lot of time trying to soak up information from smart people. Hopefully, I can give background on some of the problems or issues I've encountered so that I don't find myself repeating them again when the coffee cup becomes less than half full.</p>
+<h2>Experiment 1: Look Ma One-handed</h2>
+<p>Day one, pelican blog setup, infant in one arm mandatory for style points... Ha. spitup karma just got me for writing that. Okay, back with a change of clothes for pop and kid.</p>
+<p><em>Lesson 1:</em> Don't get cocky. You may think you know what you're doing because you already have two kids, but they will always suprise you.</p>
+<p>Today I join the ranks of bloggers, I wanted to use a static blog generator as my intent is to host this blog via <a href="https://pages.github.com/">github pages</a>. Initially I looked at using Jekyll as that content generator is integrated directly into github's repository settings, but I declined to use Jekyll as it is Ruby-based and I didn't want a bunch of extra gems on my dev system which is primarily a python dev box. I was feeling lazy and didn't want to spin up an LXC for blogging even though that's only a couple commands away. So, I decided to use a python-based static content generator and google showed me <a href="http://pelican.readthedocs.io/en/stable/">pelican</a>.</p>
+<p>Pelican hit my simple "blog bootstrap me" checklist:</p>
+<ul>
+<li>✔ looked simple to setup</li>
+<li>✔ Active community of theme and plugin developers</li>
+<li>✔ python FTW</li>
+</ul>
+<p>Okay, enough verbiage, gotta get dinner together. Here's how I finally pulled the trigger and got my site setup</p>
+<div class="highlight"><pre>$ sudo apt install pelican python-markdown
+$ mkdir -p blog/mysite
+$ <span class="nb">cd</span> blog
+$ git clone git@github.com:getpelican/pelican-themes.git
+$ git clone git@github.com:getpelican/pelican-plugins.git
+<span class="c1"># Browse themes of interest  at [PelicanThemes.com](http://pelicanthemes.com/)</span>
+<span class="c1"># I chose pelican-stripedhtml5up</span>
+$ <span class="nb">cd</span> mysite
+$ pelican-quickstart <span class="c1"># answering all the questions</span>
+$ cp -r ../pelican-striped-html5up .
+$ cp pelican-striped-html5up/pelicanconf.py .
+<span class="c1"># Copy needed neighbor plugin</span>
+$ cp -r ../pelican-plugins/neighbor .
+$ cat <span class="s">&lt;&lt;EOF &gt; content/firstpost.md</span>
+<span class="s">Title: First Post</span>
+<span class="s">Date: 2017-06-20 19:52</span>
+<span class="s">Category: Testing</span>
+<span class="s">Title: First Post</span>
+
+<span class="s">Hi World</span>
+<span class="s">--------</span>
+<span class="s">Jump on in; the water&#39;s warm.</span>
+<span class="s">EOF</span>
+$ make devserver
+<span class="c1"># xdg-open http://localhost:8000</span>
+$ 
+</pre></div>                </article>
+            </aside><!-- /#featured -->
+        <section id="extras" class="body">
+                <div class="blogroll">
+                        <h2>blogroll</h2>
+                        <ul>
+                            <li><a href="http://github.com/blackboxsw">Github</a></li>
+                            <li><a href="https://canonical.com/">Canonical</a></li>
+                            <li><a href="http://ubuntu.com/">Ubuntu</a></li>
+                        </ul>
+                </div><!-- /.blogroll -->
+                <div class="social">
+                        <h2>social</h2>
+                        <ul>
+
+                            <li><a href="http://github.com/blackboxsw">Github</a></li>
+                            <li><a href="https://twitter.com/blackbox_sw">Twitter</a></li>
+                            <li><a href="https://twitter.com/blackbox_sw">IRC- blackboxsw @ Freenode #cloud-init</a></li>
+                        </ul>
+                </div><!-- /.social -->
+        </section><!-- /#extras -->
+
+        <footer id="contentinfo" class="body">
+                <address id="about" class="vcard body">
+                Proudly powered by <a href="http://getpelican.com/">Pelican</a>, which takes great advantage of <a href="http://python.org">Python</a>.
+                </address><!-- /#about -->
+
+                <p>The theme is by <a href="http://coding.smashingmagazine.com/2009/08/04/designing-a-html-5-layout-from-scratch/">Smashing Magazine</a>, thanks!</p>
+        </footer><!-- /#contentinfo -->
+
+</body>
+</html>
