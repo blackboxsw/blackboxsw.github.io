@@ -32,7 +32,7 @@
         </address>
 <p>In <a href="/category/dry.html">DRY</a>.</p>
 
-</footer><!-- /.post-info --><p>Is there an echo in here? When looking through cloud-config modules it seemed there was a lot of boilerplate documentation and logic in each module to document and validate accepted configuration keys for each module.</p>
+</footer><!-- /.post-info --><p>Is there an echo in here? When looking through cloud-config modules it seemed there was a lot of boilerplate documentation and logic in each module to document and validate accepted configuration keys for the module.</p>
 <h1>Houston, we have a problem</h1>
 <h2>Problem 1: Doc rot</h2>
 <p>Cloud-init has 51 python modules which define the configuration functions for cloud-config features. Each module has a set of supported YAML configuration options which are documented @ http://cloudinit.readthedocs.io. Documentation of new configuration options need to be updated with changes to module supported options. We're all (mostly) human, and here's where our friend "doc rot" enters our project.  It is easy to forget to update documentation to match changed features.</p>
