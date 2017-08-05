@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>BlackBox Blog</title><link href="http://blackboxsw.github.io/" rel="alternate"></link><link href="http://blackboxsw.github.io/feeds/dry.atom.xml" rel="self"></link><id>http://blackboxsw.github.io/</id><updated>2017-08-04T18:09:00+00:00</updated><entry><title>From docs to Schema</title><link href="http://blackboxsw.github.io/from-docs-to-schema.html" rel="alternate"></link><updated>2017-08-04T18:09:00+00:00</updated><author><name>blackboxsw@gmail.com</name></author><id>tag:blackboxsw.github.io,2017-08-04:from-docs-to-schema.html</id><summary type="html">&lt;p&gt;Is there an echo in here? When looking through cloud-config modules it seemed there was a lot of boilerplate documentation and logic in each module to document and validate accepted configuration keys for each module.&lt;/p&gt;
+&lt;h1&gt;Houston, we have a problem&lt;/h1&gt;
+&lt;h2&gt;Problem 1: Doc rot&lt;/h2&gt;
+&lt;p&gt;Cloud-init has 51 python modules which define the configuration functions for cloud-config features. Each module has a set of supported YAML configuration options which are documented @ http://cloudinit.readthedocs.io. Documentation of new configuration options need to be updated with changes to module supported options. We're all (mostly) human, and here's where our friend "doc rot" enters our project.  It is easy to forget to update documentation to match changed features.&lt;/p&gt;
+&lt;h2&gt;Problem 2: Repetitive docs and configuration option parsing&lt;/h2&gt;
+&lt;p&gt;Each cloud-config module has a boilerplate reStructured text docstring describing all configuration option for the module. Most modules also check presence of a top-level configuration key before parsing or skipping a given config. This key definition could be encoded in a simple structure which can be sourced for both documentation and initial config parse. Let's observe a DRY approach to docs and module configuration definitions.&lt;/p&gt;
+&lt;h2&gt;Problem 3: Absent config validation&lt;/h2&gt;
+&lt;p&gt;Most cloud-config modules do little validation on the configuration options provided to each module. While appearing flexible, the lack of validation ultimately costs the user time and clarity due to terse KeyError or ValueError tracebacks which could be better handled if more strict validation were performed.&lt;/p&gt;
+&lt;h1&gt;Solution: One schema to rule them all&lt;/h1&gt;
+&lt;p&gt;Performing validation using a strict declarative schema has the following benefits:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;a declared schema is an &lt;strong&gt;explicit API contract&lt;/strong&gt; between the module and the configuration making it easier to consume due to reduced ambiguity&lt;/li&gt;
+&lt;li&gt;a schema definition &lt;strong&gt;improves automated testing coverage&lt;/strong&gt; by describing all supported options which can be exercised&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;avoid stale docs&lt;/strong&gt; by tightly coupling documentation to our config validation&lt;/li&gt;
+&lt;li&gt;strict validation versus permissive acceptance &lt;strong&gt;reduces cost of failures&lt;/strong&gt; by addressing invalid configuration errors exlicitly and early instead of at deployment time.&lt;/li&gt;
+&lt;li&gt;performing upfront schema validation on the entire config allows for &lt;strong&gt;reporting multiple errors in one pass&lt;/strong&gt; instead of individually hitting them at runtime.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;Step 1: Add JSONchema definitions for each cloud-config module from which documentation can also be generated.&lt;/h2&gt;
+&lt;p&gt;The ntp module, which supports optional &lt;strong&gt;servers&lt;/strong&gt; and &lt;strong&gt;pools&lt;/strong&gt; keys, shows and easy schema which codifies each property name, type and expected format:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;schema = {
+    &amp;#39;id&amp;#39;: &amp;#39;cc_ntp&amp;#39;,
+    &amp;#39;name&amp;#39;: &amp;#39;NTP&amp;#39;,
+    &amp;#39;title&amp;#39;: &amp;#39;enable and configure ntp&amp;#39;,
+    &amp;#39;description&amp;#39;: &amp;#39;Something with ntp&amp;#39;,
+    &amp;#39;distros&amp;#39;: [&amp;#39;centos&amp;#39;, &amp;#39;ubuntu&amp;#39;,...],
+    &amp;#39;examples&amp;#39;: [...],
+    &amp;#39;properties&amp;#39;: {
+        &amp;#39;ntp&amp;#39;: {
+            &amp;#39;properties&amp;#39;: {
+                &amp;#39;pools&amp;#39;: {
+                    &amp;#39;type&amp;#39;: &amp;#39;array&amp;#39;,
+                    &amp;#39;items&amp;#39;: {
+                        &amp;#39;type&amp;#39;: &amp;#39;string&amp;#39;,
+                        &amp;#39;format&amp;#39;: &amp;#39;hostname&amp;#39;
+                    },
+                    &amp;#39;uniqueItems&amp;#39;: True,
+                },
+                &amp;#39;servers&amp;#39;: {
+                    &amp;#39;type&amp;#39;: &amp;#39;array&amp;#39;,
+                    &amp;#39;items&amp;#39;: {
+                        &amp;#39;type&amp;#39;: &amp;#39;string&amp;#39;,
+                        &amp;#39;format&amp;#39;: &amp;#39;hostname&amp;#39;
+                    },
+                    &amp;#39;uniqueItems&amp;#39;: True,
+                }
+            },
+            &amp;#39;required&amp;#39;: [],  # No required properties
+            &amp;#39;additionalProperties&amp;#39;: False  # Error on unregistered properties
+        }
+    }
+}
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;h2&gt;Step 2: Add simple helper functions to generate sphinx docs from schema dict instead of module docstrings&lt;/h2&gt;
+&lt;p&gt;The magic in sphinx doc generation is overriding the default module-level docstring behavior to make use of docs rendered from schema definition. This docstring generating callback needs to be added to your conf.py in the directory where you run sphinx:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;def generate_docstring_from_schema(app, what, name, obj, options, lines):
+    &amp;quot;&amp;quot;&amp;quot;Override module docs from schema when present.&amp;quot;&amp;quot;&amp;quot;
+    if what == &amp;#39;module&amp;#39; and hasattr(obj, &amp;quot;schema&amp;quot;):
+        del lines[:]
+        lines.extend(get_schema_doc(obj.schema).split(&amp;#39;\n&amp;#39;))
+
+def setup(app):
+    app.connect(&amp;#39;autodoc-process-docstring&amp;#39;, generate_docstring_from_schema)
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;And the simple doc-generation from schema function is below:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;SCHEMA_DOC_TMPL = &amp;quot;&amp;quot;&amp;quot;
+{name}
+---
+**Summary:** {title}
+
+{description}
+
+**Internal name:** ``{id}``
+
+**Module frequency:** {frequency}
+
+**Supported distros:** {distros}
+
+**Config schema**:
+{property_doc}
+{examples}
+&amp;quot;&amp;quot;&amp;quot;
+
+def get_schema_doc(schema):
+    &amp;quot;&amp;quot;&amp;quot;Return reStructured text rendering the provided jsonschema.
+
+    @param schema: Dict of jsonschema to render.
+    @raise KeyError: If schema lacks an expected key.
+    &amp;quot;&amp;quot;&amp;quot;
+    schema[&amp;#39;property_doc&amp;#39;] = _get_property_doc(schema)
+    schema[&amp;#39;examples&amp;#39;] = _get_schema_examples(schema)
+    schema[&amp;#39;distros&amp;#39;] = &amp;#39;, &amp;#39;.join(schema[&amp;#39;distros&amp;#39;])
+    return SCHEMA_DOC_TMPL.format(**schema)
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;h2&gt;Step 3: The module handler function will iterate over schema errors with jsonschema.Validator and log collected warnings for all schema infractions.&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span class="kn"&gt;from&lt;/span&gt; &lt;span class="nn"&gt;jsonschema&lt;/span&gt; &lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="n"&gt;Draft4Validator&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;FormatChecker&lt;/span&gt;
+
+&lt;span class="n"&gt;validator&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;Draft4Validator&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;schema&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;format_checker&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;FormatChecker&lt;/span&gt;&lt;span class="p"&gt;())&lt;/span&gt;
+&lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;error&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="nb"&gt;sorted&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;validator&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;iter_errors&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;config&lt;/span&gt;&lt;span class="p"&gt;),&lt;/span&gt; &lt;span class="n"&gt;key&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="k"&gt;lambda&lt;/span&gt; &lt;span class="n"&gt;e&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="n"&gt;e&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="n"&gt;path&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;.&amp;#39;&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;join&lt;/span&gt;&lt;span class="p"&gt;([&lt;/span&gt;&lt;span class="nb"&gt;str&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;p&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;p&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;error&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="p"&gt;])&lt;/span&gt;
+    &lt;span class="n"&gt;errors&lt;/span&gt; &lt;span class="o"&gt;+=&lt;/span&gt; &lt;span class="p"&gt;((&lt;/span&gt;&lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;error&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;message&lt;/span&gt;&lt;span class="p"&gt;),)&lt;/span&gt;
+&lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;errors&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+    &lt;span class="k"&gt;raise&lt;/span&gt; &lt;span class="n"&gt;SchemaValidationError&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;errors&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;h2&gt;Step 4: Simple cmdline tools to validate cloud-config files against known schema to avoid costly errors during instance deployment.&lt;/h2&gt;
+&lt;p&gt;Already included with cloud-init 0.7.9 is a minimal schema validation development tool:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;python3 -m cloudinit.config.schema --help
+&lt;/pre&gt;&lt;/div&gt;</summary></entry></feed>

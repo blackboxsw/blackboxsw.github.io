@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>BlackBox Blog</title><link href="http://blackboxsw.github.io/" rel="alternate"></link><link href="http://blackboxsw.github.io/feeds/all.atom.xml" rel="self"></link><id>http://blackboxsw.github.io/</id><updated>2017-08-04T18:09:00+00:00</updated><entry><title>From docs to Schema</title><link href="http://blackboxsw.github.io/from-docs-to-schema.html" rel="alternate"></link><updated>2017-08-04T18:09:00+00:00</updated><author><name>blackboxsw@gmail.com</name></author><id>tag:blackboxsw.github.io,2017-08-04:from-docs-to-schema.html</id><summary type="html">&lt;p&gt;Is there an echo in here? When looking through cloud-config modules it seemed there was a lot of boilerplate documentation and logic in each module to document and validate accepted configuration keys for each module.&lt;/p&gt;
+&lt;h1&gt;Houston, we have a problem&lt;/h1&gt;
+&lt;h2&gt;Problem 1: Doc rot&lt;/h2&gt;
+&lt;p&gt;Cloud-init has 51 python modules which define the configuration functions for cloud-config features. Each module has a set of supported YAML configuration options which are documented @ http://cloudinit.readthedocs.io. Documentation of new configuration options need to be updated with changes to module supported options. We're all (mostly) human, and here's where our friend "doc rot" enters our project.  It is easy to forget to update documentation to match changed features.&lt;/p&gt;
+&lt;h2&gt;Problem 2: Repetitive docs and configuration option parsing&lt;/h2&gt;
+&lt;p&gt;Each cloud-config module has a boilerplate reStructured text docstring describing all configuration option for the module. Most modules also check presence of a top-level configuration key before parsing or skipping a given config. This key definition could be encoded in a simple structure which can be sourced for both documentation and initial config parse. Let's observe a DRY approach to docs and module configuration definitions.&lt;/p&gt;
+&lt;h2&gt;Problem 3: Absent config validation&lt;/h2&gt;
+&lt;p&gt;Most cloud-config modules do little validation on the configuration options provided to each module. While appearing flexible, the lack of validation ultimately costs the user time and clarity due to terse KeyError or ValueError tracebacks which could be better handled if more strict validation were performed.&lt;/p&gt;
+&lt;h1&gt;Solution: One schema to rule them all&lt;/h1&gt;
+&lt;p&gt;Performing validation using a strict declarative schema has the following benefits:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;a declared schema is an &lt;strong&gt;explicit API contract&lt;/strong&gt; between the module and the configuration making it easier to consume due to reduced ambiguity&lt;/li&gt;
+&lt;li&gt;a schema definition &lt;strong&gt;improves automated testing coverage&lt;/strong&gt; by describing all supported options which can be exercised&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;avoid stale docs&lt;/strong&gt; by tightly coupling documentation to our config validation&lt;/li&gt;
+&lt;li&gt;strict validation versus permissive acceptance &lt;strong&gt;reduces cost of failures&lt;/strong&gt; by addressing invalid configuration errors exlicitly and early instead of at deployment time.&lt;/li&gt;
+&lt;li&gt;performing upfront schema validation on the entire config allows for &lt;strong&gt;reporting multiple errors in one pass&lt;/strong&gt; instead of individually hitting them at runtime.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;Step 1: Add JSONchema definitions for each cloud-config module from which documentation can also be generated.&lt;/h2&gt;
+&lt;p&gt;The ntp module, which supports optional &lt;strong&gt;servers&lt;/strong&gt; and &lt;strong&gt;pools&lt;/strong&gt; keys, shows and easy schema which codifies each property name, type and expected format:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;schema = {
+    &amp;#39;id&amp;#39;: &amp;#39;cc_ntp&amp;#39;,
+    &amp;#39;name&amp;#39;: &amp;#39;NTP&amp;#39;,
+    &amp;#39;title&amp;#39;: &amp;#39;enable and configure ntp&amp;#39;,
+    &amp;#39;description&amp;#39;: &amp;#39;Something with ntp&amp;#39;,
+    &amp;#39;distros&amp;#39;: [&amp;#39;centos&amp;#39;, &amp;#39;ubuntu&amp;#39;,...],
+    &amp;#39;examples&amp;#39;: [...],
+    &amp;#39;properties&amp;#39;: {
+        &amp;#39;ntp&amp;#39;: {
+            &amp;#39;properties&amp;#39;: {
+                &amp;#39;pools&amp;#39;: {
+                    &amp;#39;type&amp;#39;: &amp;#39;array&amp;#39;,
+                    &amp;#39;items&amp;#39;: {
+                        &amp;#39;type&amp;#39;: &amp;#39;string&amp;#39;,
+                        &amp;#39;format&amp;#39;: &amp;#39;hostname&amp;#39;
+                    },
+                    &amp;#39;uniqueItems&amp;#39;: True,
+                },
+                &amp;#39;servers&amp;#39;: {
+                    &amp;#39;type&amp;#39;: &amp;#39;array&amp;#39;,
+                    &amp;#39;items&amp;#39;: {
+                        &amp;#39;type&amp;#39;: &amp;#39;string&amp;#39;,
+                        &amp;#39;format&amp;#39;: &amp;#39;hostname&amp;#39;
+                    },
+                    &amp;#39;uniqueItems&amp;#39;: True,
+                }
+            },
+            &amp;#39;required&amp;#39;: [],  # No required properties
+            &amp;#39;additionalProperties&amp;#39;: False  # Error on unregistered properties
+        }
+    }
+}
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;h2&gt;Step 2: Add simple helper functions to generate sphinx docs from schema dict instead of module docstrings&lt;/h2&gt;
+&lt;p&gt;The magic in sphinx doc generation is overriding the default module-level docstring behavior to make use of docs rendered from schema definition. This docstring generating callback needs to be added to your conf.py in the directory where you run sphinx:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;def generate_docstring_from_schema(app, what, name, obj, options, lines):
+    &amp;quot;&amp;quot;&amp;quot;Override module docs from schema when present.&amp;quot;&amp;quot;&amp;quot;
+    if what == &amp;#39;module&amp;#39; and hasattr(obj, &amp;quot;schema&amp;quot;):
+        del lines[:]
+        lines.extend(get_schema_doc(obj.schema).split(&amp;#39;\n&amp;#39;))
+
+def setup(app):
+    app.connect(&amp;#39;autodoc-process-docstring&amp;#39;, generate_docstring_from_schema)
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;And the simple doc-generation from schema function is below:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;SCHEMA_DOC_TMPL = &amp;quot;&amp;quot;&amp;quot;
+{name}
+---
+**Summary:** {title}
+
+{description}
+
+**Internal name:** ``{id}``
+
+**Module frequency:** {frequency}
+
+**Supported distros:** {distros}
+
+**Config schema**:
+{property_doc}
+{examples}
+&amp;quot;&amp;quot;&amp;quot;
+
+def get_schema_doc(schema):
+    &amp;quot;&amp;quot;&amp;quot;Return reStructured text rendering the provided jsonschema.
+
+    @param schema: Dict of jsonschema to render.
+    @raise KeyError: If schema lacks an expected key.
+    &amp;quot;&amp;quot;&amp;quot;
+    schema[&amp;#39;property_doc&amp;#39;] = _get_property_doc(schema)
+    schema[&amp;#39;examples&amp;#39;] = _get_schema_examples(schema)
+    schema[&amp;#39;distros&amp;#39;] = &amp;#39;, &amp;#39;.join(schema[&amp;#39;distros&amp;#39;])
+    return SCHEMA_DOC_TMPL.format(**schema)
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;h2&gt;Step 3: The module handler function will iterate over schema errors with jsonschema.Validator and log collected warnings for all schema infractions.&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span class="kn"&gt;from&lt;/span&gt; &lt;span class="nn"&gt;jsonschema&lt;/span&gt; &lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="n"&gt;Draft4Validator&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;FormatChecker&lt;/span&gt;
+
+&lt;span class="n"&gt;validator&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;Draft4Validator&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;schema&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;format_checker&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;FormatChecker&lt;/span&gt;&lt;span class="p"&gt;())&lt;/span&gt;
+&lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;error&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="nb"&gt;sorted&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;validator&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;iter_errors&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;config&lt;/span&gt;&lt;span class="p"&gt;),&lt;/span&gt; &lt;span class="n"&gt;key&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="k"&gt;lambda&lt;/span&gt; &lt;span class="n"&gt;e&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="n"&gt;e&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="n"&gt;path&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;.&amp;#39;&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;join&lt;/span&gt;&lt;span class="p"&gt;([&lt;/span&gt;&lt;span class="nb"&gt;str&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;p&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;p&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;error&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="p"&gt;])&lt;/span&gt;
+    &lt;span class="n"&gt;errors&lt;/span&gt; &lt;span class="o"&gt;+=&lt;/span&gt; &lt;span class="p"&gt;((&lt;/span&gt;&lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;error&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;message&lt;/span&gt;&lt;span class="p"&gt;),)&lt;/span&gt;
+&lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;errors&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+    &lt;span class="k"&gt;raise&lt;/span&gt; &lt;span class="n"&gt;SchemaValidationError&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;errors&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;h2&gt;Step 4: Simple cmdline tools to validate cloud-config files against known schema to avoid costly errors during instance deployment.&lt;/h2&gt;
+&lt;p&gt;Already included with cloud-init 0.7.9 is a minimal schema validation development tool:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;python3 -m cloudinit.config.schema --help
+&lt;/pre&gt;&lt;/div&gt;</summary></entry><entry><title>Patient Zero</title><link href="http://blackboxsw.github.io/patient-zero.html" rel="alternate"></link><updated>2017-06-20T19:52:00+00:00</updated><author><name>blackboxsw@gmail.com</name></author><id>tag:blackboxsw.github.io,2017-06-20:patient-zero.html</id><summary type="html">&lt;h2&gt;Stardate: 3 days after Father's Day&lt;/h2&gt;
+&lt;p&gt;I'm sleep deprived and exhausted from the amazing Father's Day present my wife and I got this year. With the joys of parenthood, comes the thought that if I don't write something down somewhere, I'll forget it or misplace it. That thought will forever be lost as my mind drifts to more pressing concerns such as "Have I changed the dog's diaper?" or "Have I put the baby outside yet for his potty break?".&lt;/p&gt;
+&lt;h2&gt;Introduction&lt;/h2&gt;
+&lt;p&gt;The intent of this little molecule in the internet is to create a collection of techincal decisions, questions or software solutions I've come across in my day to day work at Canonical improving Ubuntu system's management. I've been here at Canonical working on the best software distribution ever for about 6 years now, formerly 10+ years in HP Linux &amp;amp; Cloud organization and spent a lot of time trying to soak up information from smart people. Hopefully, I can give background on some of the problems or issues I've encountered so that I don't find myself repeating them again when the coffee cup becomes less than half full.&lt;/p&gt;
+&lt;h2&gt;Experiment 1: Look Ma One-handed&lt;/h2&gt;
+&lt;p&gt;Day one, pelican blog setup, infant in one arm mandatory for style points... Ha. spitup karma just got me for writing that. Okay, back with a change of clothes for pop and kid.&lt;/p&gt;
+&lt;p&gt;&lt;em&gt;Lesson 1:&lt;/em&gt; Don't get cocky. You may think you know what you're doing because you already have two kids, but they will always surprise you.&lt;/p&gt;
+&lt;p&gt;Today I join the ranks of bloggers, I wanted to use a static blog generator as my intent is to host this blog via &lt;a href="https://pages.github.com/"&gt;github pages&lt;/a&gt;. Initially I looked at using Jekyll as that content generator is integrated directly into github's repository settings, but I declined to use Jekyll as it is Ruby-based and I didn't want a bunch of extra gems on my dev system which is primarily a python dev box. I was feeling lazy and didn't want to spin up an LXC for blogging even though that's only a couple commands away. Instead, I decided to use a python-based static content generator and google showed me &lt;a href="http://pelican.readthedocs.io/en/stable/"&gt;pelican&lt;/a&gt;.&lt;/p&gt;
+&lt;p&gt;Pelican hit my simple "blog bootstrap me" checklist:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;✔ looked simple to setup&lt;/li&gt;
+&lt;li&gt;✔ Active community of theme and plugin developers&lt;/li&gt;
+&lt;li&gt;✔ python FTW&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Okay, enough verbiage, gotta get dinner together. Here's how I finally pulled the trigger and got my site setup&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;$ sudo apt install pelican python-markdown
+$ mkdir -p blog/mysite
+$ &lt;span class="nb"&gt;cd&lt;/span&gt; blog
+$ git clone git@github.com:getpelican/pelican-themes.git
+$ git clone git@github.com:getpelican/pelican-plugins.git
+&lt;span class="c1"&gt;# Browse themes of interest  at [PelicanThemes.com](http://pelicanthemes.com/)&lt;/span&gt;
+&lt;span class="c1"&gt;# I chose pelican-stripedhtml5up&lt;/span&gt;
+$ &lt;span class="nb"&gt;cd&lt;/span&gt; mysite
+$ pelican-quickstart &lt;span class="c1"&gt;# answering all the questions&lt;/span&gt;
+$ cp -r ../pelican-striped-html5up .
+$ cp pelican-striped-html5up/pelicanconf.py .
+&lt;span class="c1"&gt;# Copy needed neighbor plugin&lt;/span&gt;
+$ cp -r ../pelican-plugins/neighbor .
+$ cat &lt;span class="s"&gt;&amp;lt;&amp;lt;EOF &amp;gt; content/firstpost.md&lt;/span&gt;
+&lt;span class="s"&gt;Title: First Post&lt;/span&gt;
+&lt;span class="s"&gt;Date: 2017-06-20 19:52&lt;/span&gt;
+&lt;span class="s"&gt;Category: Testing&lt;/span&gt;
+&lt;span class="s"&gt;Title: First Post&lt;/span&gt;
+
+&lt;span class="s"&gt;Hi World&lt;/span&gt;
+&lt;span class="s"&gt;--------&lt;/span&gt;
+&lt;span class="s"&gt;Jump on in; the water&amp;#39;s warm.&lt;/span&gt;
+&lt;span class="s"&gt;EOF&lt;/span&gt;
+$ make devserver
+&lt;span class="c1"&gt;# xdg-open http://localhost:8000&lt;/span&gt;
+&lt;span class="c1"&gt;# Iterate on content/firstpost.md&lt;/span&gt;
+$ &lt;span class="nb"&gt;cd&lt;/span&gt; output
+$ git init .
+$ git remote add origin https://github.com/&amp;lt;YOUR_GITHUB_USER&amp;gt;/&amp;lt;YOUR_GITHUB_USER&amp;gt;.github.io
+$ git push origin
+&lt;/pre&gt;&lt;/div&gt;</summary></entry></feed>
