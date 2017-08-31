@@ -3,7 +3,8 @@
 <head>
         <meta charset="utf-8" />
         <title>BlackBox Blog - DRY</title>
-        <link rel="stylesheet" href="/theme/css/main.css" />
+        <link rel="stylesheet" href="https://blackboxsw.github.io/theme/css/main.css" />
+        <link href="https://blackboxsw.github.io/feeds/all.atom.xml" type="application/atom+xml" rel="alternate" title="BlackBox Blog Atom Feed" />
 
         <!--[if IE]>
             <script src="https://html5shiv.googlecode.com/svn/trunk/html5.js"></script>
@@ -12,25 +13,25 @@
 
 <body id="index" class="home">
         <header id="banner" class="body">
-                <h1><a href="/">BlackBox Blog  <strong>A ramble of software mistakes, mishaps and mayhem to make you feel good about yourself</strong></a></h1>
+                <h1><a href="https://blackboxsw.github.io/">BlackBox Blog  <strong>A ramble of software mistakes, mishaps and mayhem to make you feel good about yourself</strong></a></h1>
                 <nav><ul>
-                    <li class="active"><a href="/category/dry.html">DRY</a></li>
-                    <li><a href="/category/intro.html">Intro</a></li>
+                    <li class="active"><a href="https://blackboxsw.github.io/category/dry.html">DRY</a></li>
+                    <li><a href="https://blackboxsw.github.io/category/intro.html">Intro</a></li>
                 </ul></nav>
         </header><!-- /#banner -->
 
             <aside id="featured" class="body">
                 <article>
-                    <h1 class="entry-title"><a href="/from-docs-to-schema.html">From docs to Schema</a></h1>
+                    <h1 class="entry-title"><a href="https://blackboxsw.github.io/from-docs-to-schema.html">From docs to Schema</a></h1>
 <footer class="post-info">
         <abbr class="published" title="2017-08-04T18:09:00+00:00">
                 Published: August 04, 2017
         </abbr>
 
         <address class="vcard author">
-                By                         <a class="url fn" href="/author/blackboxswgmailcom.html">blackboxsw@gmail.com</a>
+                By                         <a class="url fn" href="https://blackboxsw.github.io/author/blackboxswgmailcom.html">blackboxsw@gmail.com</a>
         </address>
-<p>In <a href="/category/dry.html">DRY</a>.</p>
+<p>In <a href="https://blackboxsw.github.io/category/dry.html">DRY</a>.</p>
 
 </footer><!-- /.post-info --><p>Is there an echo in here? When looking through cloud-config modules it seemed there was a lot of boilerplate documentation and logic in each module to document and validate accepted configuration keys for the module.</p>
 <h1>Houston, we have a problem</h1>
@@ -46,7 +47,7 @@
 <li>a declared schema is an <strong>explicit API contract</strong> between the module and the configuration making it easier to consume due to reduced ambiguity</li>
 <li>a schema definition <strong>improves automated testing coverage</strong> by describing all supported options which can be exercised</li>
 <li><strong>avoid stale docs</strong> by tightly coupling documentation to our config validation</li>
-<li>strict validation versus permissive acceptance <strong>reduces cost of failures</strong> by addressing invalid configuration errors exlicitly and early instead of at deployment time.</li>
+<li><strong>strict validation</strong> versus permissive acceptance <strong>reduces cost of failures</strong> by addressing invalid configuration errors exlicitly and early instead of at deployment time.</li>
 <li>performing upfront schema validation on the entire config allows for <strong>reporting multiple errors in one pass</strong> instead of individually hitting them at runtime.</li>
 </ul>
 <h2>Step 1: Add JSONchema definitions for each cloud-config module from which documentation can also be generated.</h2>
@@ -160,6 +161,7 @@ def get_schema_doc(schema):
                 <div class="social">
                         <h2>social</h2>
                         <ul>
+                            <li><a href="https://blackboxsw.github.io/feeds/all.atom.xml" type="application/atom+xml" rel="alternate">atom feed</a></li>
 
                             <li><a href="http://github.com/blackboxsw">Github</a></li>
                             <li><a href="https://twitter.com/blackbox_sw">Twitter</a></li>
@@ -176,5 +178,15 @@ def get_schema_doc(schema):
                 <p>The theme is by <a href="http://coding.smashingmagazine.com/2009/08/04/designing-a-html-5-layout-from-scratch/">Smashing Magazine</a>, thanks!</p>
         </footer><!-- /#contentinfo -->
 
+    <script type="text/javascript">
+    var _gaq = _gaq || [];
+    _gaq.push(['_setAccount', 'UA-50554247-2']);
+    _gaq.push(['_trackPageview']);
+    (function() {
+        var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+        ga.src = 'https://ssl.google-analytics.com/ga.js';
+        var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+    })();
+    </script>
 </body>
 </html>
