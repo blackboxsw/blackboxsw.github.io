@@ -15,14 +15,85 @@
         <header id="banner" class="body">
                 <h1><a href="https://blackboxsw.github.io/">BlackBox Blog  <strong>A ramble of software mistakes, mishaps and mayhem to make you feel good about yourself</strong></a></h1>
                 <nav><ul>
-                    <li><a href="https://blackboxsw.github.io/category/dry.html">DRY</a></li>
+                    <li><a href="https://blackboxsw.github.io/category/cloud-init.html">cloud-init</a></li>
                     <li><a href="https://blackboxsw.github.io/category/intro.html">Intro</a></li>
                 </ul></nav>
         </header><!-- /#banner -->
 
             <aside id="featured" class="body">
                 <article>
-                    <h1 class="entry-title"><a href="https://blackboxsw.github.io/from-docs-to-schema.html">From docs to Schema</a></h1>
+                    <h1 class="entry-title"><a href="https://blackboxsw.github.io/cloud-init-ipv6-support-for-ec2.html">cloud-init IPv6 support for EC2</a></h1>
+<footer class="post-info">
+        <abbr class="published" title="2017-10-18T16:16:00+00:00">
+                Published: October 18, 2017
+        </abbr>
+
+        <address class="vcard author">
+                By                         <a class="url fn" href="https://blackboxsw.github.io/author/blackboxswgmailcom.html">blackboxsw@gmail.com</a>
+        </address>
+<p>In <a href="https://blackboxsw.github.io/category/cloud-init.html">cloud-init</a>.</p>
+<p>tags: <a href="https://blackboxsw.github.io/tag/aws.html">aws</a> <a href="https://blackboxsw.github.io/tag/ec2.html">ec2</a> <a href="https://blackboxsw.github.io/tag/cloud-init.html">cloud-init</a> <a href="https://blackboxsw.github.io/tag/ipv6.html">IPv6</a> </p>
+</footer><!-- /.post-info --><p><img alt="Clouds in forest" src="/images/small-nature-forest-trees-fog.jpeg" title="Cloud-init EC2" /></p>
+<p>After extensive SRU testing, Ubuntu published cloud-init version 17.1.27 to Xenial, Zesty, Artful and Bionic series. One notable feature in 17.1.27 is the automatic configuration of IPv6 adddesses associated with your EC2 instances.</p>
+<h2>What has cloud-init done for me lately?</h2>
+<p>You no longer need to provide your own network configuration to cloud-init describing IPv6, manually add IPv6 config to <strong>/etc/network/interfaces.d/50-cloud-init.cfg</strong> or <strong>/etc/network/50-cloud-init.yaml</strong> nor reboot your instance. Cloud-init now configures ipv4/ipv6 support for you automatically on instance first boot. Think of how much more productive your day just got without that extra reboot :).</p>
+<h2>The skinny on IPv6 in EC2</h2>
+<p>Amazon's EC2 platform supports <a href="http://docs.aws.amazon.com/AmazonVPC/latest/UserGuide/vpc-migrate-ipv6.html">associating IPv6 addresses to instances</a> in addition to IPv4 configuration. At the time of this article, private IPv4 network association is still mandatory for EC2 instances to communicate with Amazon's internal services.</p>
+<p>Once you've added an IPv6 CIDR to one of your virtual private clouds (VPCs) in EC2, cloud-init will discover and configure IPv6 automatically for any instance created using that VPC.</p>
+<h2>Trails and tribulations: The nitty gritty</h2>
+<p>Getting IPv6 support in cloud-init was not without a bit of code wrangling. Below are some of the hoops cloud-init jumps through to get to your network configuration.</p>
+<h3>IPv6 discovery meets chicken and egg</h3>
+<p>Due to EC2 security/provisioning limitations, there are only a couple options for an instance to discover it has an IPv6 association.</p>
+<ol>
+<li>Attempt a dhcp6-discovery on all NICs and wait for either addresses or a timeouts</li>
+<li>Query the metadata service and to see which NICs are configured for IPv6 and setup dhcp6 on them.</li>
+</ol>
+<p>Option 1 is a non-starter because cloud-init can't waste precious boot cycles on a 5 minute dhcp6 discovery timeout for NICs that may not even be IPv6.</p>
+<p>For option 2, how can we talk to the metadata service on the network before we actually have network set up?</p>
+<h4>Door #1 - Add random link-local address to our NIC and query EC2 metadata</h4>
+<p>DHCP4 discovery takes precious cycles we would rather not spend if can set our own static IP address. EC2's metadata has a link-local address of 169.254.169.254. Since link-local can't be forwarded by routers, we tried statically configuring a random link-local address to talk to metadata, but the service only responds to requests from the known source IPv4 address allocated to the instance. By comparison, setting a static link-local address before talking to metadata is exactly what DigitalOcean's datasource does.</p>
+<h4>Door #2 - Dhcp4 discovery on primary NIC, then query metadata</h4>
+<p>Cloud-init takes this approach because EC2 metadata service is the least expensive mechanism by which an instance can determine if it has IPv6 configured, and we can't talk to metadata without the known allocated IPv4 address. DHCP4 discovery costs us a bit of time, but Amazon's dhcp services are quick to respond w/ IP request. The metadata tells us which NICs need IPv6 though presence of <strong>network/interfaces/macs/<mac>/ipv6s</strong>.</p>
+<h3>DCHPv4 discovery in a sandbox</h3>
+<p>We know on EC2 that our initial DHCPv4 discovery in init-local may not be the "final" network configuration because we only discover IPv6 configuration once we crawl metadata. So, we run our discovery in a temp directory sandbox to avoid side-effects produced by <strong>dhcp-script</strong> or precipitating dhcplease files on the filesystem. This contained environment allows us to consume the minimal information we need to talk to the metadata service: our IP, mask, broadcast and router. Anything else handled by the stock dhcp client is unnecessary baggage at this point in boot. Our dhcp4 discovery takes us 0.033 seconds (that is 33 thousandths!). Thanks Amazon for super responsive dhcp servers.</p>
+<h2>Futures</h2>
+<p>All told, this is a good win for EC2. No longer having to hack <strong>/etc/network/interfaces</strong> or provide <strong>#cloud-config</strong> gets folks back to a simpler start state for IPv6.</p>
+<p>Additional performance gains could be made for EC2 in the following areas:</p>
+<ul>
+<li>
+<h3>Dropping the initial dhcp4 discovery before talking to metadata.</h3>
+<ul>
+<li>If the EC2 platform can tell our instance what IP it should have (via /sys, DMI info of environment vars), we can statically configure our address and crawl the metadata address without sandbox DHCP discovery. This would further expedite EC2 instance startup.</li>
+</ul>
+</li>
+<li>
+<h3>EC2 metadata needs to present enough information that we could statically configure the NICs without the need to talk to dhcp at all.</h3>
+<ul>
+<li>EC2 metadata doesn't currently have enough info about the IPv4 IPv6 network config to statically setup routes, so we have to rely on dhcp4/6 clients.</li>
+<li><em>Caveat</em>: EC2 platform may rely on that dhcp discovery for some service and security setup that prevents this from being a viable solution.</li>
+</ul>
+</li>
+</ul>
+<p>Thanks for sticking with me. Stay tuned for future posts about other cloud-init 17.1 features such as:</p>
+<ul>
+<li><em>using python-boto3 for speedy integration testing on EC2</em></li>
+<li><em>cloud-init CLI commands</em></li>
+<li><em>cloud-init EC2 performance improvements</em></li>
+<li><em>cloud-init cloud-config schema annotations</em></li>
+</ul>                </article>
+            </aside><!-- /#featured -->
+                <section id="content" class="body">
+                    <h1>Other articles</h1>
+                    <hr />
+                    <ol id="posts-list" class="hfeed">
+
+            <li><article class="hentry">
+                <header>
+                    <h1><a href="https://blackboxsw.github.io/from-docs-to-schema.html" rel="bookmark"
+                           title="Permalink to From docs to Schema">From docs to Schema</a></h1>
+                </header>
+
+                <div class="entry-content">
 <footer class="post-info">
         <abbr class="published" title="2017-08-04T18:09:00+00:00">
                 Published: August 04, 2017
@@ -31,128 +102,15 @@
         <address class="vcard author">
                 By                         <a class="url fn" href="https://blackboxsw.github.io/author/blackboxswgmailcom.html">blackboxsw@gmail.com</a>
         </address>
-<p>In <a href="https://blackboxsw.github.io/category/dry.html">DRY</a>.</p>
-
-</footer><!-- /.post-info --><p>Is there an echo in here? When looking through cloud-config modules it seemed there was a lot of boilerplate documentation and logic in each module to document and validate accepted configuration keys for the module.</p>
+<p>In <a href="https://blackboxsw.github.io/category/cloud-init.html">cloud-init</a>.</p>
+<p>tags: <a href="https://blackboxsw.github.io/tag/usability.html">usability</a> <a href="https://blackboxsw.github.io/tag/cloud-init.html">cloud-init</a> <a href="https://blackboxsw.github.io/tag/dry.html">DRY</a> </p>
+</footer><!-- /.post-info -->                <p>Is there an echo in here? When looking through cloud-config modules it seemed there was a lot of boilerplate documentation and logic in each module to document and validate accepted configuration keys for the module.</p>
 <h1>Houston, we have a problem</h1>
 <h2>Problem 1: Doc rot</h2>
-<p>Cloud-init has 51 python modules which define the configuration functions for cloud-config features. Each module has a set of supported YAML configuration options which are documented @ http://cloudinit.readthedocs.io. Documentation of new configuration options need to be updated with changes to module supported options. We're all (mostly) human, and here's where our friend "doc rot" enters our project.  It is easy to forget to update documentation to match changed features.</p>
-<h2>Problem 2: Repetitive docs and configuration option parsing</h2>
-<p>Each cloud-config module has a boilerplate reStructured text docstring describing all configuration option for the module. Most modules also check presence of a top-level configuration key before parsing or skipping a given config. This key definition could be encoded in a simple structure which can be sourced for both documentation and initial config parse. Let's observe a DRY approach to docs and module configuration definitions.</p>
-<h2>Problem 3: Absent config validation</h2>
-<p>Most cloud-config modules do little validation on the configuration options provided to each module. While appearing flexible, the lack of validation ultimately costs the user time and clarity due to terse KeyError or ValueError tracebacks which could be better handled if more strict validation were performed.</p>
-<h1>Solution: One schema to rule them all</h1>
-<p>Performing validation using a strict declarative schema has the following benefits:</p>
-<ul>
-<li>a declared schema is an <strong>explicit API contract</strong> between the module and the configuration making it easier to consume due to reduced ambiguity</li>
-<li>a schema definition <strong>improves automated testing coverage</strong> by describing all supported options which can be exercised</li>
-<li><strong>avoid stale docs</strong> by tightly coupling documentation to our config validation</li>
-<li><strong>strict validation</strong> versus permissive acceptance <strong>reduces cost of failures</strong> by addressing invalid configuration errors exlicitly and early instead of at deployment time.</li>
-<li>performing upfront schema validation on the entire config allows for <strong>reporting multiple errors in one pass</strong> instead of individually hitting them at runtime.</li>
-</ul>
-<h2>Step 1: Add JSONchema definitions for each cloud-config module from which documentation can also be generated.</h2>
-<p>The ntp module, which supports optional <strong>servers</strong> and <strong>pools</strong> keys, shows and easy schema which codifies each property name, type and expected format:</p>
-<div class="highlight"><pre>schema = {
-    &#39;id&#39;: &#39;cc_ntp&#39;,
-    &#39;name&#39;: &#39;NTP&#39;,
-    &#39;title&#39;: &#39;enable and configure ntp&#39;,
-    &#39;description&#39;: &#39;Something with ntp&#39;,
-    &#39;distros&#39;: [&#39;centos&#39;, &#39;ubuntu&#39;,...],
-    &#39;examples&#39;: [...],
-    &#39;properties&#39;: {
-        &#39;ntp&#39;: {
-            &#39;properties&#39;: {
-                &#39;pools&#39;: {
-                    &#39;type&#39;: &#39;array&#39;,
-                    &#39;items&#39;: {
-                        &#39;type&#39;: &#39;string&#39;,
-                        &#39;format&#39;: &#39;hostname&#39;
-                    },
-                    &#39;uniqueItems&#39;: True,
-                },
-                &#39;servers&#39;: {
-                    &#39;type&#39;: &#39;array&#39;,
-                    &#39;items&#39;: {
-                        &#39;type&#39;: &#39;string&#39;,
-                        &#39;format&#39;: &#39;hostname&#39;
-                    },
-                    &#39;uniqueItems&#39;: True,
-                }
-            },
-            &#39;required&#39;: [],  # No required properties
-            &#39;additionalProperties&#39;: False  # Error on unregistered properties
-        }
-    }
-}
-</pre></div>
-
-
-<h2>Step 2: Add simple helper functions to generate sphinx docs from schema dict instead of module docstrings</h2>
-<p>The magic in sphinx doc generation is overriding the default module-level docstring behavior to make use of docs rendered from schema definition. This docstring generating callback needs to be added to your conf.py in the directory where you run sphinx:</p>
-<div class="highlight"><pre>def generate_docstring_from_schema(app, what, name, obj, options, lines):
-    &quot;&quot;&quot;Override module docs from schema when present.&quot;&quot;&quot;
-    if what == &#39;module&#39; and hasattr(obj, &quot;schema&quot;):
-        del lines[:]
-        lines.extend(get_schema_doc(obj.schema).split(&#39;\n&#39;))
-
-def setup(app):
-    app.connect(&#39;autodoc-process-docstring&#39;, generate_docstring_from_schema)
-</pre></div>
-
-
-<p>And the simple doc-generation from schema function is below:</p>
-<div class="highlight"><pre>SCHEMA_DOC_TMPL = &quot;&quot;&quot;
-{name}
----
-**Summary:** {title}
-
-{description}
-
-**Internal name:** ``{id}``
-
-**Module frequency:** {frequency}
-
-**Supported distros:** {distros}
-
-**Config schema**:
-{property_doc}
-{examples}
-&quot;&quot;&quot;
-
-def get_schema_doc(schema):
-    &quot;&quot;&quot;Return reStructured text rendering the provided jsonschema.
-
-    @param schema: Dict of jsonschema to render.
-    @raise KeyError: If schema lacks an expected key.
-    &quot;&quot;&quot;
-    schema[&#39;property_doc&#39;] = _get_property_doc(schema)
-    schema[&#39;examples&#39;] = _get_schema_examples(schema)
-    schema[&#39;distros&#39;] = &#39;, &#39;.join(schema[&#39;distros&#39;])
-    return SCHEMA_DOC_TMPL.format(**schema)
-</pre></div>
-
-
-<h2>Step 3: The module handler function will iterate over schema errors with jsonschema.Validator and log collected warnings for all schema infractions.</h2>
-<div class="highlight"><pre><span class="kn">from</span> <span class="nn">jsonschema</span> <span class="kn">import</span> <span class="n">Draft4Validator</span><span class="p">,</span> <span class="n">FormatChecker</span>
-
-<span class="n">validator</span> <span class="o">=</span> <span class="n">Draft4Validator</span><span class="p">(</span><span class="n">schema</span><span class="p">,</span> <span class="n">format_checker</span><span class="o">=</span><span class="n">FormatChecker</span><span class="p">())</span>
-<span class="k">for</span> <span class="n">error</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">validator</span><span class="o">.</span><span class="n">iter_errors</span><span class="p">(</span><span class="n">config</span><span class="p">),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">:</span> <span class="n">e</span><span class="o">.</span><span class="n">path</span><span class="p">):</span>
-    <span class="n">path</span> <span class="o">=</span> <span class="s1">&#39;.&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">error</span><span class="o">.</span><span class="n">path</span><span class="p">])</span>
-    <span class="n">errors</span> <span class="o">+=</span> <span class="p">((</span><span class="n">path</span><span class="p">,</span> <span class="n">error</span><span class="o">.</span><span class="n">message</span><span class="p">),)</span>
-<span class="k">if</span> <span class="n">errors</span><span class="p">:</span>
-    <span class="k">raise</span> <span class="n">SchemaValidationError</span><span class="p">(</span><span class="n">errors</span><span class="p">)</span>
-</pre></div>
-
-
-<h2>Step 4: Simple cmdline tools to validate cloud-config files against known schema to avoid costly errors during instance deployment.</h2>
-<p>Already included with cloud-init 0.7.9 is a minimal schema validation development tool:</p>
-<div class="highlight"><pre>python3 -m cloudinit.config.schema --help
-</pre></div>                </article>
-            </aside><!-- /#featured -->
-                <section id="content" class="body">
-                    <h1>Other articles</h1>
-                    <hr />
-                    <ol id="posts-list" class="hfeed">
+<p>Cloud-init has 51 python modules which ...</p>
+                <a class="readmore" href="https://blackboxsw.github.io/from-docs-to-schema.html">read more</a>
+                </div><!-- /.entry-content -->
+            </article></li>
 
             <li><article class="hentry">
                 <header>
