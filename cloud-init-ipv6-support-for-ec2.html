@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+        <meta charset="utf-8" />
+        <title>cloud-init IPv6 support for EC2</title>
+        <link rel="stylesheet" href="https://blackboxsw.github.io/theme/css/main.css" />
+        <link href="https://blackboxsw.github.io/feeds/all.atom.xml" type="application/atom+xml" rel="alternate" title="BlackBox Blog Atom Feed" />
+
+        <!--[if IE]>
+            <script src="https://html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+</head>
+
+<body id="index" class="home">
+        <header id="banner" class="body">
+                <h1><a href="https://blackboxsw.github.io/">BlackBox Blog  <strong>A ramble of software mistakes, mishaps and mayhem to make you feel good about yourself</strong></a></h1>
+                <nav><ul>
+                    <li class="active"><a href="https://blackboxsw.github.io/category/cloud-init.html">cloud-init</a></li>
+                    <li><a href="https://blackboxsw.github.io/category/intro.html">Intro</a></li>
+                </ul></nav>
+        </header><!-- /#banner -->
+<section id="content" class="body">
+  <article>
+    <header>
+      <h1 class="entry-title">
+        <a href="https://blackboxsw.github.io/cloud-init-ipv6-support-for-ec2.html" rel="bookmark"
+           title="Permalink to cloud-init IPv6 support for EC2">cloud-init IPv6 support for EC2</a></h1>
+    </header>
+
+    <div class="entry-content">
+<footer class="post-info">
+        <abbr class="published" title="2017-10-18T16:16:00+00:00">
+                Published: October 18, 2017
+        </abbr>
+
+        <address class="vcard author">
+                By                         <a class="url fn" href="https://blackboxsw.github.io/author/blackboxswgmailcom.html">blackboxsw@gmail.com</a>
+        </address>
+<p>In <a href="https://blackboxsw.github.io/category/cloud-init.html">cloud-init</a>.</p>
+<p>tags: <a href="https://blackboxsw.github.io/tag/aws.html">aws</a> <a href="https://blackboxsw.github.io/tag/ec2.html">ec2</a> <a href="https://blackboxsw.github.io/tag/cloud-init.html">cloud-init</a> <a href="https://blackboxsw.github.io/tag/ipv6.html">IPv6</a> </p>
+</footer><!-- /.post-info -->      <p><img alt="Clouds in forest" src="/images/small-nature-forest-trees-fog.jpeg" title="Cloud-init EC2" /></p>
+<p>After extensive SRU testing, Ubuntu published cloud-init version 17.1.27 to Xenial, Zesty, Artful and Bionic series. One notable feature in 17.1.27 is the automatic configuration of IPv6 adddesses associated with your EC2 instances.</p>
+<h2>What has cloud-init done for me lately?</h2>
+<p>You no longer need to provide your own network configuration to cloud-init describing IPv6, manually add IPv6 config to <strong>/etc/network/interfaces.d/50-cloud-init.cfg</strong> or <strong>/etc/network/50-cloud-init.yaml</strong> nor reboot your instance. Cloud-init now configures ipv4/ipv6 support for you automatically on instance first boot. Think of how much more productive your day just got without that extra reboot :).</p>
+<h2>The skinny on IPv6 in EC2</h2>
+<p>Amazon's EC2 platform supports <a href="http://docs.aws.amazon.com/AmazonVPC/latest/UserGuide/vpc-migrate-ipv6.html">associating IPv6 addresses to instances</a> in addition to IPv4 configuration. At the time of this article, private IPv4 network association is still mandatory for EC2 instances to communicate with Amazon's internal services.</p>
+<p>Once you've added an IPv6 CIDR to one of your virtual private clouds (VPCs) in EC2, cloud-init will discover and configure IPv6 automatically for any instance created using that VPC.</p>
+<h2>Trails and tribulations: The nitty gritty</h2>
+<p>Getting IPv6 support in cloud-init was not without a bit of code wrangling. Below are some of the hoops cloud-init jumps through to get to your network configuration.</p>
+<h3>IPv6 discovery meets chicken and egg</h3>
+<p>Due to EC2 security/provisioning limitations, there are only a couple options for an instance to discover it has an IPv6 association.</p>
+<ol>
+<li>Attempt a dhcp6-discovery on all NICs and wait for either addresses or a timeouts</li>
+<li>Query the metadata service and to see which NICs are configured for IPv6 and setup dhcp6 on them.</li>
+</ol>
+<p>Option 1 is a non-starter because cloud-init can't waste precious boot cycles on a 5 minute dhcp6 discovery timeout for NICs that may not even be IPv6.</p>
+<p>For option 2, how can we talk to the metadata service on the network before we actually have network set up?</p>
+<h4>Door #1 - Add random link-local address to our NIC and query EC2 metadata</h4>
+<p>DHCP4 discovery takes precious cycles we would rather not spend if can set our own static IP address. EC2's metadata has a link-local address of 169.254.169.254. Since link-local can't be forwarded by routers, we tried statically configuring a random link-local address to talk to metadata, but the service only responds to requests from the known source IPv4 address allocated to the instance. By comparison, setting a static link-local address before talking to metadata is exactly what DigitalOcean's datasource does.</p>
+<h4>Door #2 - Dhcp4 discovery on primary NIC, then query metadata</h4>
+<p>Cloud-init takes this approach because EC2 metadata service is the least expensive mechanism by which an instance can determine if it has IPv6 configured, and we can't talk to metadata without the known allocated IPv4 address. DHCP4 discovery costs us a bit of time, but Amazon's dhcp services are quick to respond w/ IP request. The metadata tells us which NICs need IPv6 though presence of <strong>network/interfaces/macs/<mac>/ipv6s</strong>.</p>
+<h3>DCHPv4 discovery in a sandbox</h3>
+<p>We know on EC2 that our initial DHCPv4 discovery in init-local may not be the "final" network configuration because we only discover IPv6 configuration once we crawl metadata. So, we run our discovery in a temp directory sandbox to avoid side-effects produced by <strong>dhcp-script</strong> or precipitating dhcplease files on the filesystem. This contained environment allows us to consume the minimal information we need to talk to the metadata service: our IP, mask, broadcast and router. Anything else handled by the stock dhcp client is unnecessary baggage at this point in boot. Our dhcp4 discovery takes us 0.033 seconds (that is 33 thousandths!). Thanks Amazon for super responsive dhcp servers.</p>
+<h2>Futures</h2>
+<p>All told, this is a good win for EC2. No longer having to hack <strong>/etc/network/interfaces</strong> or provide <strong>#cloud-config</strong> gets folks back to a simpler start state for IPv6.</p>
+<p>Additional performance gains could be made for EC2 in the following areas:</p>
+<ul>
+<li>
+<h3>Dropping the initial dhcp4 discovery before talking to metadata.</h3>
+<ul>
+<li>If the EC2 platform can tell our instance what IP it should have (via /sys, DMI info of environment vars), we can statically configure our address and crawl the metadata address without sandbox DHCP discovery. This would further expedite EC2 instance startup.</li>
+</ul>
+</li>
+<li>
+<h3>EC2 metadata needs to present enough information that we could statically configure the NICs without the need to talk to dhcp at all.</h3>
+<ul>
+<li>EC2 metadata doesn't currently have enough info about the IPv4 IPv6 network config to statically setup routes, so we have to rely on dhcp4/6 clients.</li>
+<li><em>Caveat</em>: EC2 platform may rely on that dhcp discovery for some service and security setup that prevents this from being a viable solution.</li>
+</ul>
+</li>
+</ul>
+<p>Thanks for sticking with me. Stay tuned for future posts about other cloud-init 17.1 features such as:</p>
+<ul>
+<li><em>using python-boto3 for speedy integration testing on EC2</em></li>
+<li><em>cloud-init CLI commands</em></li>
+<li><em>cloud-init EC2 performance improvements</em></li>
+<li><em>cloud-init cloud-config schema annotations</em></li>
+</ul>
+    </div><!-- /.entry-content -->
+
+  </article>
+</section>
+        <section id="extras" class="body">
+                <div class="blogroll">
+                        <h2>blogroll</h2>
+                        <ul>
+                            <li><a href="http://ubuntu.com/">Ubuntu</a></li>
+                            <li><a href="https://landscape.canonical.com/">Landscape</a></li>
+                            <li><a href="https://cloudinit.readthedocs.io/en/latest/">Cloud-init</a></li>
+                        </ul>
+                </div><!-- /.blogroll -->
+                <div class="social">
+                        <h2>social</h2>
+                        <ul>
+                            <li><a href="https://blackboxsw.github.io/feeds/all.atom.xml" type="application/atom+xml" rel="alternate">atom feed</a></li>
+
+                            <li><a href="http://github.com/blackboxsw">Github</a></li>
+                            <li><a href="https://twitter.com/blackbox_sw">Twitter</a></li>
+                            <li><a href="https://webchat.freenode.net/?channels=cloud-init">IRC- blackboxsw @ Freenode #cloud-init</a></li>
+                        </ul>
+                </div><!-- /.social -->
+        </section><!-- /#extras -->
+
+        <footer id="contentinfo" class="body">
+                <address id="about" class="vcard body">
+                Proudly powered by <a href="http://getpelican.com/">Pelican</a>, which takes great advantage of <a href="http://python.org">Python</a>.
+                </address><!-- /#about -->
+
+                <p>The theme is by <a href="http://coding.smashingmagazine.com/2009/08/04/designing-a-html-5-layout-from-scratch/">Smashing Magazine</a>, thanks!</p>
+        </footer><!-- /#contentinfo -->
+
+    <script type="text/javascript">
+    var _gaq = _gaq || [];
+    _gaq.push(['_setAccount', 'UA-50554247-2']);
+    _gaq.push(['_trackPageview']);
+    (function() {
+        var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+        ga.src = 'https://ssl.google-analytics.com/ga.js';
+        var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+    })();
+    </script>
+</body>
+</html>
