@@ -45,7 +45,7 @@
 &lt;ul&gt;
 &lt;li&gt;&lt;em&gt;using python-boto3 for speedy integration testing on EC2&lt;/em&gt;&lt;/li&gt;
 &lt;li&gt;&lt;em&gt;cloud-init CLI commands&lt;/em&gt;&lt;/li&gt;
-&lt;li&gt;&lt;em&gt;cloud-init EC2 performance improvements&lt;/em&gt;&lt;/li&gt;
+&lt;li&gt;&lt;em&gt;Making EC2 boots faster&lt;/em&gt;&lt;/li&gt;
 &lt;li&gt;&lt;em&gt;cloud-init cloud-config schema annotations&lt;/em&gt;&lt;/li&gt;
 &lt;/ul&gt;</summary><category term="aws"></category><category term="ec2"></category><category term="cloud-init"></category><category term="IPv6"></category></entry><entry><title>From docs to Schema</title><link href="https://blackboxsw.github.io/from-docs-to-schema.html" rel="alternate"></link><updated>2017-08-04T18:09:00+00:00</updated><author><name>blackboxsw@gmail.com</name></author><id>tag:blackboxsw.github.io,2017-08-04:from-docs-to-schema.html</id><summary type="html">&lt;p&gt;Is there an echo in here? When looking through cloud-config modules it seemed there was a lot of boilerplate documentation and logic in each module to document and validate accepted configuration keys for the module.&lt;/p&gt;
 &lt;h1&gt;Houston, we have a problem&lt;/h1&gt;
