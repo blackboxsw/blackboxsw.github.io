@@ -61,7 +61,7 @@
 <p>Cloud-init takes this approach because EC2 metadata service is the least expensive mechanism by which an instance can determine if it has IPv6 configured, and we can't talk to metadata without the known allocated IPv4 address. DHCP4 discovery costs us a bit of time, but Amazon's dhcp services are quick to respond w/ IP request. The metadata tells us which NICs need IPv6 though presence of <strong>network/interfaces/macs/<mac>/ipv6s</strong>.</p>
 <h3>DCHPv4 discovery in a sandbox</h3>
 <p>We know on EC2 that our initial DHCPv4 discovery in init-local may not be the "final" network configuration because we only discover IPv6 configuration once we crawl metadata. So, we run our discovery in a temp directory sandbox to avoid side-effects produced by <strong>dhcp-script</strong> or precipitating dhcplease files on the filesystem. This contained environment allows us to consume the minimal information we need to talk to the metadata service: our IP, mask, broadcast and router. Anything else handled by the stock dhcp client is unnecessary baggage at this point in boot. Our dhcp4 discovery takes us 0.033 seconds (that is 33 thousandths!). Thanks Amazon for super responsive dhcp servers.</p>
-<h2>Futures</h2>
+<h2>EC2 potential improvements</h2>
 <p>All told, this is a good win for EC2. No longer having to hack <strong>/etc/network/interfaces</strong> or provide <strong>#cloud-config</strong> gets folks back to a simpler start state for IPv6.</p>
 <p>Additional performance gains could be made for EC2 in the following areas:</p>
 <ul>
@@ -79,6 +79,7 @@
 </ul>
 </li>
 </ul>
+<h2>Stay tuned</h2>
 <p>Thanks for sticking with me. Stay tuned for future posts about other cloud-init 17.1 features such as:</p>
 <ul>
 <li><em>using python-boto3 for speedy integration testing on EC2</em></li>
