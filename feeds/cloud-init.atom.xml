@@ -1,5 +1,179 @@
 <?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom"><title>BlackBox Blog</title><link href="https://blackboxsw.github.io/" rel="alternate"></link><link href="https://blackboxsw.github.io/feeds/cloud-init.atom.xml" rel="self"></link><id>https://blackboxsw.github.io/</id><updated>2017-11-18T20:16:00+00:00</updated><entry><title>cloud-init IPv6 support for EC2</title><link href="https://blackboxsw.github.io/cloud-init-ipv6-support-for-ec2.html" rel="alternate"></link><updated>2017-11-18T20:16:00+00:00</updated><author><name>blackboxsw@gmail.com</name></author><id>tag:blackboxsw.github.io,2017-11-18:cloud-init-ipv6-support-for-ec2.html</id><summary type="html">&lt;p&gt;&lt;img alt="Clouds in forest" src="/images/small-nature-forest-trees-fog.jpeg" title="Cloud-init EC2" /&gt;&lt;/p&gt;
+<feed xmlns="http://www.w3.org/2005/Atom"><title>BlackBox Blog</title><link href="https://blackboxsw.github.io/" rel="alternate"></link><link href="https://blackboxsw.github.io/feeds/cloud-init.atom.xml" rel="self"></link><id>https://blackboxsw.github.io/</id><updated>2018-01-22T22:31:00+00:00</updated><entry><title>Seed snaps using MAAS</title><link href="https://blackboxsw.github.io/seed-snaps-using-maas.html" rel="alternate"></link><updated>2018-01-22T22:31:00+00:00</updated><author><name>blackboxsw@gmail.com</name></author><id>tag:blackboxsw.github.io,2018-01-22:seed-snaps-using-maas.html</id><summary type="html">&lt;p&gt;Or otherwise entitled: Where my week went....&lt;/p&gt;
+&lt;p&gt;MAAS quickly deploys machines by providing configuration to the fast pasth installer &lt;a href="http://curtin.readthedocs.io"&gt;curtin&lt;/a&gt;. &lt;a href="https://snapcraft.io"&gt;Snappy&lt;/a&gt; supports setting up a seed directory containing local snaps and snap assertions which snapd installs on first boot. This post below is a catalog of how I seeded some local snaps which got subsequently installed as the MAAS-deployed node booted.&lt;/p&gt;
+&lt;p&gt;TLDR: Use &lt;a href="https://cloudinit.readthedocs.io/en/latest/topics/modules.html#snappy"&gt;cloud-init&lt;/a&gt; :)&lt;/p&gt;
+&lt;h2&gt;Snappy seed directory&lt;/h2&gt;
+&lt;p&gt;As of snap version 2.30, seed directories can be provided to a system image by creating a seed directory in an image the looks like the following:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;/var/lib/snapd/seed/seed.yaml  # yaml manifest of snaps to install
+/var/lib/snapd/seed/snaps      # local *.snap files
+/var/lib/snapd/seed/assertions # assert files for each snap
+/var/lib/snapd/seed/generic.account-key  # an account assert file
+/var/lib/snapd/seed/generic.account  # an account type assert file
+/var/lib/snapd/seed/generic-classic.model  # a model type assert file
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;h3&gt;Shell: create the seed directory&lt;/h3&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;mkdir -p /var/lib/snapd/seed/snaps /var/lib/snapd/seed/assertions;
+cd /var/lib/snapd/seed/snaps;
+# Download the published snaps and their related assert files
+# core snap is required for seeding
+snap download core; snap download &lt;span class="nt"&gt;&amp;lt;yourpublishedsnap&amp;gt;&lt;/span&gt;;
+
+# Move assert files downloaded into assertions subdir
+mv *assert ../assertions;
+cd ../assertions;
+
+# Create model and account assertions
+snap known --remote model series=16 model=generic-classic brand-id=generic &amp;gt; generic-classic.model;
+
+ACCOUNT_KEY=`awk &amp;#39;/sign-key-sha3-384/{print $2}&amp;#39; generic-classic.model`;
+
+snap known --remote account-key public-key-sha3-384=&lt;span class="cp"&gt;${&lt;/span&gt;&lt;span class="n"&gt;ACCOUNT_KEY&lt;/span&gt;&lt;span class="cp"&gt;}&lt;/span&gt; &amp;gt; generic.acccout-key;
+
+snap known --remote account account-id=generic &amp;gt; generic.account;
+
+# Create the seed.yaml: the manifest of snaps to install
+echo &amp;quot;snaps:&amp;quot; &amp;gt; /var/lib/snapd/seed/seed.yaml;
+for assertfile in *assert; do
+    awk &amp;#39;/snap-name/{SNAP=$2} /snap-revision:/ {VERSION=$2} END {printf &amp;quot; - name: %s\n   channel: stable\n   file: %s_%s.snap\n&amp;quot;, SNAP, SNAP , VERSION} &lt;span class="nv"&gt;$assertfile&lt;/span&gt; &amp;gt;&amp;gt; /var/lib/snapd/seed/seed.yaml;
+done;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;h3&gt;Python: create the seed directory&lt;/h3&gt;
+&lt;p&gt;Here's a script I wrote in python to setup a seed dir to install core and vlc&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span class="sd"&gt;&amp;#39;&amp;#39;&amp;#39;Simple script to create a snap seed directory.&amp;#39;&amp;#39;&amp;#39;&lt;/span&gt;
+
+&lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="nn"&gt;glob&lt;/span&gt;
+&lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="nn"&gt;os&lt;/span&gt;
+&lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="nn"&gt;re&lt;/span&gt;
+
+&lt;span class="kn"&gt;from&lt;/span&gt; &lt;span class="nn"&gt;cloudinit.util&lt;/span&gt; &lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="n"&gt;chdir&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;ensure_dir&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;subp&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;write_file&lt;/span&gt;
+
+
+&lt;span class="n"&gt;SNAP_SEED_DIR&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;/var/lib/snapd/seed&amp;#39;&lt;/span&gt;
+
+
+&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;download_snaps&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;snap_names&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;targetdir&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="sd"&gt;&amp;quot;&amp;quot;&amp;quot;Download the provided snaps to targetdir.&lt;/span&gt;
+
+&lt;span class="sd"&gt;    @param snap_names: List of snap names or urls to download.&lt;/span&gt;
+&lt;span class="sd"&gt;    @param targetdir: The path where snaps should be downloaded.&lt;/span&gt;
+
+&lt;span class="sd"&gt;    @return: Returns a tuple containing a list of snap filenames downloaded&lt;/span&gt;
+&lt;span class="sd"&gt;        and a list of snap assert filenames downloaded.&lt;/span&gt;
+&lt;span class="sd"&gt;    &amp;quot;&amp;quot;&amp;quot;&lt;/span&gt;
+    &lt;span class="n"&gt;commands&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;[]&lt;/span&gt;
+    &lt;span class="n"&gt;env&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;os&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;environ&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;copy&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt;
+    &lt;span class="n"&gt;env&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;SNAPPY_STORE_NO_CDN&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;1&amp;#39;&lt;/span&gt;
+    &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;snap&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;snap_names&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="k"&gt;try&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="n"&gt;commands&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;append&lt;/span&gt;&lt;span class="p"&gt;([&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;snap&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;download&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;snap&lt;/span&gt;&lt;span class="p"&gt;])&lt;/span&gt;
+        &lt;span class="k"&gt;except&lt;/span&gt; &lt;span class="n"&gt;ProcessExecutionError&lt;/span&gt; &lt;span class="k"&gt;as&lt;/span&gt; &lt;span class="n"&gt;e&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="k"&gt;print&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;WARNING: Could not download snap &amp;#39;{snap_name}&amp;#39;: {error}&amp;quot;&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;format&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;
+                &lt;span class="n"&gt;snap_name&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;snap&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;error&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="nb"&gt;str&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;e&lt;/span&gt;&lt;span class="p"&gt;)))&lt;/span&gt;
+    &lt;span class="k"&gt;with&lt;/span&gt; &lt;span class="n"&gt;chdir&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;targetdir&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+        &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;cmd&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;commands&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="n"&gt;subp&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;cmd&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;env&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;env&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+        &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;glob&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;glob&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;*.snap&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;),&lt;/span&gt;  &lt;span class="n"&gt;glob&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;glob&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;*.assert&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt;
+    &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="p"&gt;([],&lt;/span&gt; &lt;span class="p"&gt;[])&lt;/span&gt;
+
+
+&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;create_local_snap_seed&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;snap_names&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;targetdir&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="sd"&gt;&amp;quot;&amp;quot;&amp;quot;Creates a snap mirror in targetdir.&lt;/span&gt;
+
+&lt;span class="sd"&gt;    Downloads the snap_names from the snapstore and creates a local&lt;/span&gt;
+&lt;span class="sd"&gt;    seed directory from which snaps will be auto-installed.&lt;/span&gt;
+&lt;span class="sd"&gt;    &amp;quot;&amp;quot;&amp;quot;&lt;/span&gt;
+    &lt;span class="n"&gt;snap_names&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="nb"&gt;sorted&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;snap_names&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;snapsdir&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;os&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;join&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;targetdir&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;snaps&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;ensure_dir&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;snapsdir&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;assertdir&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;os&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;join&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;targetdir&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;assertions&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;ensure_dir&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;assertdir&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;model_out&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;_&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;subp&lt;/span&gt;&lt;span class="p"&gt;([&lt;/span&gt;
+        &lt;span class="s1"&gt;&amp;#39;snap&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;known&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;--remote&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;model&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;series=16&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+        &lt;span class="s1"&gt;&amp;#39;model=generic-classic&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;brand-id=generic&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;],&lt;/span&gt; &lt;span class="n"&gt;capture&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="bp"&gt;True&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;write_file&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;os&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;join&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;assertdir&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;generic-classic.model&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;),&lt;/span&gt; &lt;span class="n"&gt;model_out&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;match&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;re&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;match&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;
+        &lt;span class="s1"&gt;r&amp;#39;.*sign-key-sha3-384: (?P&amp;lt;account_key&amp;gt;[^\n]+).*&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+        &lt;span class="n"&gt;model_out&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;flags&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;re&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;DOTALL&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;account_key&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;match&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;group&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;account_key&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;account_key_out&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;_&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;subp&lt;/span&gt;&lt;span class="p"&gt;([&lt;/span&gt;
+        &lt;span class="s1"&gt;&amp;#39;snap&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;known&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;--remote&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;account-key&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+        &lt;span class="s1"&gt;&amp;#39;public-key-sha3-384={key}&amp;#39;&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;format&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;account_key&lt;/span&gt;&lt;span class="p"&gt;)])&lt;/span&gt;
+    &lt;span class="n"&gt;write_file&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;os&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;join&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;assertdir&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;generic.account-key&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;),&lt;/span&gt; &lt;span class="n"&gt;account_key_out&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;account_out&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;_&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;subp&lt;/span&gt;&lt;span class="p"&gt;([&lt;/span&gt;
+        &lt;span class="s1"&gt;&amp;#39;snap&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;known&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;--remote&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;account&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;account-id=generic&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;])&lt;/span&gt;
+    &lt;span class="n"&gt;write_file&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;os&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;join&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;assertdir&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;generic.account&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;),&lt;/span&gt; &lt;span class="n"&gt;account_out&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;snapfiles&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;assertfiles&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;download_snaps&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;snap_names&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;snapsdir&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="c1"&gt;# move assert files to assertions dir&lt;/span&gt;
+    &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;assertfile&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;assertfiles&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="n"&gt;os&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;rename&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;os&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;join&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;snapsdir&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;assertfile&lt;/span&gt;&lt;span class="p"&gt;),&lt;/span&gt;
+                  &lt;span class="n"&gt;os&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;join&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;assertdir&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;assertfile&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt;
+
+    &lt;span class="n"&gt;seedfile&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;os&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;join&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;targetdir&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;seed.yaml&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;content&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;snaps:&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;
+    &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;index&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;snapfile&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="nb"&gt;enumerate&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="nb"&gt;sorted&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;snapfiles&lt;/span&gt;&lt;span class="p"&gt;)):&lt;/span&gt;
+        &lt;span class="n"&gt;content&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;append&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;
+            &lt;span class="s2"&gt;&amp;quot; - name: {snap_name}&lt;/span&gt;&lt;span class="se"&gt;\n&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;&lt;/span&gt;
+            &lt;span class="s2"&gt;&amp;quot;   channel: stable&lt;/span&gt;&lt;span class="se"&gt;\n&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;&lt;/span&gt;
+            &lt;span class="s2"&gt;&amp;quot;   file: {snap_file}&amp;quot;&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;format&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;
+                &lt;span class="n"&gt;snap_name&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;snap_names&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;index&lt;/span&gt;&lt;span class="p"&gt;],&lt;/span&gt; &lt;span class="n"&gt;snap_file&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;snapfile&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt;
+    &lt;span class="n"&gt;write_file&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;seedfile&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;&lt;/span&gt;&lt;span class="se"&gt;\n&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;join&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;content&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt;
+
+&lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;__name__&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;__main__&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+    &lt;span class="n"&gt;create_local_snap_seed&lt;/span&gt;&lt;span class="p"&gt;([&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;core&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;vlc&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;],&lt;/span&gt; &lt;span class="n"&gt;SNAP_SEED_DIR&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;h2&gt;Seed snaps through curtin config&lt;/h2&gt;
+&lt;p&gt;Curtin provides facility to write content into the target disk by specifying &lt;a href="http://curtin.readthedocs.io/en/latest/topics/config.html#write-files"&gt;write_files configuration&lt;/a&gt; and &lt;a href="http://curtin.readthedocs.io/en/latest/topics/config.html?highlight=late_commands#stages"&gt;late_commands&lt;/a&gt;. Below is an abridged configuration section which writes the python script above in curtin's write_files and runs it in late_commands.&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span class="n"&gt;write_files&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+  &lt;span class="n"&gt;setup_snap_seed&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+    &lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="o"&gt;/&lt;/span&gt;&lt;span class="n"&gt;tmp&lt;/span&gt;&lt;span class="o"&gt;/&lt;/span&gt;&lt;span class="n"&gt;create_snap_preseed&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;py&lt;/span&gt;
+    &lt;span class="n"&gt;content&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="o"&gt;|&lt;/span&gt;
+      &lt;span class="sd"&gt;&amp;#39;&amp;#39;&amp;#39;Simple script to create a snap seed directory.&amp;#39;&amp;#39;&amp;#39;&lt;/span&gt;
+
+      &lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="nn"&gt;glob&lt;/span&gt; 
+      &lt;span class="c1"&gt;# rest of script&lt;/span&gt;
+      &lt;span class="o"&gt;...&lt;/span&gt;
+
+&lt;span class="n"&gt;late_commands&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+    &lt;span class="n"&gt;run_snap_seed_setup&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;curtin&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s2"&gt;&amp;quot;in-target&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s2"&gt;&amp;quot;--&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;python3&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="o"&gt;/&lt;/span&gt;&lt;span class="n"&gt;tmp&lt;/span&gt;&lt;span class="o"&gt;/&lt;/span&gt;&lt;span class="n"&gt;create_snap_preseed&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;py&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;h2&gt;MAAS talking to curtin&lt;/h2&gt;
+&lt;p&gt;MAAS allows you to provide custom curtin configuration to a matching node based on /etc/maas/preseeds/curtin_userdata_* files. Let's create a curtin preseed file for all amd64 xenial systems.&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;cd /etc/maas/preseeds/;
+cp curtin_userdata curtin_userdata_ubuntu_amd64_generic_xenial
+# 1. Add run_snap_seed_setup line to the existing late_commands section
+# 2. Add write_files section included above
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Now, anytime MAAS deploys ubuntu amd64 generic xenial systems, they'll all get vlc snaps installed. You can now watch all the movies you really to on any system your employer owns :).&lt;/p&gt;
+&lt;h2&gt;Retrospective: better alternatives for snap installs&lt;/h2&gt;
+&lt;p&gt;Since MAAS drives curtin for installs, seeding snaps in an image before the system boots is compelling in a couple of situations:
+ * MAAS can deliver a private snap to the image which is not hosted in a public snap store (firmware updates, security fixes etc)
+ * The deployed machines have limited network connectivity to the snap store behind a firewall
+ * You have some private snap credentials you don't want exposed on the deployed machines, so you keep them only on your MAAS server and use them only from curtin.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;If those cases don't necessarily apply, it is probably best to use cloud-init for the following reasons:&lt;/strong&gt;
+ * Since cloud-init runs after curtin MAAS-deployed nodes, you can leverage cloud-init's features 'for free'
+ *  Pre-seeded snaps can't actually install until snapd starts after networking is up. This is during cloud-init's init-network stage anyway.
+     * By preseeding snaps, we have only shifted the actual snap download time into curtin's setup stage instead of cloud-init's.
+ * Use a generic approach: Cloud-init's &lt;a href="https://cloudinit.readthedocs.io/en/latest/topics/modules.html#snappy"&gt;snappy module config&lt;/a&gt; supports a simple option to declare desired snappy packages in &lt;strong&gt;#cloud-config&lt;/strong&gt; files which work on almost any cloud you need, including your MAAS managed hardware.
+ * In contrast to seeding snaps, cloud-init takes care of installing snap-core dependency automatically.&lt;/p&gt;
+&lt;h4&gt;Here is a sample #cloud-config file you could provide at instance deployment time in most major clouds.&lt;/h4&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;#cloud-config
+snappy:
+    system_snappy: true  # allow snap installs on non-snappy systems
+    packages: [canonical-livepatch]
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;Thanks for staying in touch, I'll get back to our regularly scheduled cloud-init posts in our next post 'cloud-init subcommands'.&lt;/p&gt;</summary><category term="MAAS"></category><category term="curtin"></category><category term="cloud-init"></category><category term="snappy"></category></entry><entry><title>cloud-init IPv6 support for EC2</title><link href="https://blackboxsw.github.io/cloud-init-ipv6-support-for-ec2.html" rel="alternate"></link><updated>2017-11-18T20:16:00+00:00</updated><author><name>blackboxsw@gmail.com</name></author><id>tag:blackboxsw.github.io,2017-11-18:cloud-init-ipv6-support-for-ec2.html</id><summary type="html">&lt;p&gt;&lt;img alt="Clouds in forest" src="/images/small-nature-forest-trees-fog.jpeg" title="Cloud-init EC2" /&gt;&lt;/p&gt;
 &lt;p&gt;After extensive SRU testing, Ubuntu published cloud-init version 17.1.27 to Xenial, Zesty, Artful and Bionic series. One notable feature in 17.1.27 is the automatic configuration of IPv6 adddesses associated with your EC2 instances.&lt;/p&gt;
 &lt;h2&gt;What has cloud-init done for me lately?&lt;/h2&gt;
 &lt;p&gt;You no longer need to provide your own network configuration to cloud-init describing IPv6, manually add IPv6 config to &lt;strong&gt;/etc/network/interfaces.d/50-cloud-init.cfg&lt;/strong&gt; or &lt;strong&gt;/etc/network/50-cloud-init.yaml&lt;/strong&gt; nor reboot your instance. Cloud-init now configures ipv4/ipv6 support for you automatically on instance first boot. Think of how much more productive your day just got without that extra reboot :).&lt;/p&gt;
