@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+        <meta charset="utf-8" />
+        <title>Seed snaps using MAAS</title>
+        <link rel="stylesheet" href="https://blackboxsw.github.io/theme/css/main.css" />
+        <link href="https://blackboxsw.github.io/feeds/all.atom.xml" type="application/atom+xml" rel="alternate" title="BlackBox Blog Atom Feed" />
+
+        <!--[if IE]>
+            <script src="https://html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+        <![endif]-->
+</head>
+
+<body id="index" class="home">
+        <header id="banner" class="body">
+                <h1><a href="https://blackboxsw.github.io/">BlackBox Blog  <strong>A ramble of software mistakes, mishaps and mayhem to make you feel good about yourself</strong></a></h1>
+                <nav><ul>
+                    <li class="active"><a href="https://blackboxsw.github.io/category/cloud-init.html">cloud-init</a></li>
+                    <li><a href="https://blackboxsw.github.io/category/intro.html">Intro</a></li>
+                </ul></nav>
+        </header><!-- /#banner -->
+<section id="content" class="body">
+  <article>
+    <header>
+      <h1 class="entry-title">
+        <a href="https://blackboxsw.github.io/seed-snaps-using-maas.html" rel="bookmark"
+           title="Permalink to Seed snaps using MAAS">Seed snaps using MAAS</a></h1>
+    </header>
+
+    <div class="entry-content">
+<footer class="post-info">
+        <abbr class="published" title="2018-01-22T22:31:00+00:00">
+                Published: January 22, 2018
+        </abbr>
+
+        <address class="vcard author">
+                By                         <a class="url fn" href="https://blackboxsw.github.io/author/blackboxswgmailcom.html">blackboxsw@gmail.com</a>
+        </address>
+<p>In <a href="https://blackboxsw.github.io/category/cloud-init.html">cloud-init</a>.</p>
+<p>tags: <a href="https://blackboxsw.github.io/tag/maas.html">MAAS</a> <a href="https://blackboxsw.github.io/tag/curtin.html">curtin</a> <a href="https://blackboxsw.github.io/tag/cloud-init.html">cloud-init</a> <a href="https://blackboxsw.github.io/tag/snappy.html">snappy</a> </p>
+</footer><!-- /.post-info -->      <p>Or otherwise entitled: Where my week went....</p>
+<p>MAAS quickly deploys machines by providing configuration to the fast pasth installer <a href="http://curtin.readthedocs.io">curtin</a>. <a href="https://snapcraft.io">Snappy</a> supports setting up a seed directory containing local snaps and snap assertions which snapd installs on first boot. This post below is a catalog of how I seeded some local snaps which got subsequently installed as the MAAS-deployed node booted.</p>
+<p>TLDR: Use <a href="https://cloudinit.readthedocs.io/en/latest/topics/modules.html#snappy">cloud-init</a> :)</p>
+<h2>Snappy seed directory</h2>
+<p>As of snap version 2.30, seed directories can be provided to a system image by creating a seed directory in an image the looks like the following:</p>
+<div class="highlight"><pre>/var/lib/snapd/seed/seed.yaml  # yaml manifest of snaps to install
+/var/lib/snapd/seed/snaps      # local *.snap files
+/var/lib/snapd/seed/assertions # assert files for each snap
+/var/lib/snapd/seed/generic.account-key  # an account assert file
+/var/lib/snapd/seed/generic.account  # an account type assert file
+/var/lib/snapd/seed/generic-classic.model  # a model type assert file
+</pre></div>
+
+
+<h3>Shell: create the seed directory</h3>
+<div class="highlight"><pre>mkdir -p /var/lib/snapd/seed/snaps /var/lib/snapd/seed/assertions;
+cd /var/lib/snapd/seed/snaps;
+# Download the published snaps and their related assert files
+# core snap is required for seeding
+snap download core; snap download <span class="nt">&lt;yourpublishedsnap&gt;</span>;
+
+# Move assert files downloaded into assertions subdir
+mv *assert ../assertions;
+cd ../assertions;
+
+# Create model and account assertions
+snap known --remote model series=16 model=generic-classic brand-id=generic &gt; generic-classic.model;
+
+ACCOUNT_KEY=`awk &#39;/sign-key-sha3-384/{print $2}&#39; generic-classic.model`;
+
+snap known --remote account-key public-key-sha3-384=<span class="cp">${</span><span class="n">ACCOUNT_KEY</span><span class="cp">}</span> &gt; generic.acccout-key;
+
+snap known --remote account account-id=generic &gt; generic.account;
+
+# Create the seed.yaml: the manifest of snaps to install
+echo &quot;snaps:&quot; &gt; /var/lib/snapd/seed/seed.yaml;
+for assertfile in *assert; do
+    awk &#39;/snap-name/{SNAP=$2} /snap-revision:/ {VERSION=$2} END {printf &quot; - name: %s\n   channel: stable\n   file: %s_%s.snap\n&quot;, SNAP, SNAP , VERSION} <span class="nv">$assertfile</span> &gt;&gt; /var/lib/snapd/seed/seed.yaml;
+done;
+</pre></div>
+
+
+<h3>Python: create the seed directory</h3>
+<p>Here's a script I wrote in python to setup a seed dir to install core and vlc</p>
+<div class="highlight"><pre><span class="sd">&#39;&#39;&#39;Simple script to create a snap seed directory.&#39;&#39;&#39;</span>
+
+<span class="kn">import</span> <span class="nn">glob</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">re</span>
+
+<span class="kn">from</span> <span class="nn">cloudinit.util</span> <span class="kn">import</span> <span class="n">chdir</span><span class="p">,</span> <span class="n">ensure_dir</span><span class="p">,</span> <span class="n">subp</span><span class="p">,</span> <span class="n">write_file</span>
+
+
+<span class="n">SNAP_SEED_DIR</span> <span class="o">=</span> <span class="s1">&#39;/var/lib/snapd/seed&#39;</span>
+
+
+<span class="k">def</span> <span class="nf">download_snaps</span><span class="p">(</span><span class="n">snap_names</span><span class="p">,</span> <span class="n">targetdir</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Download the provided snaps to targetdir.</span>
+
+<span class="sd">    @param snap_names: List of snap names or urls to download.</span>
+<span class="sd">    @param targetdir: The path where snaps should be downloaded.</span>
+
+<span class="sd">    @return: Returns a tuple containing a list of snap filenames downloaded</span>
+<span class="sd">        and a list of snap assert filenames downloaded.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">commands</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">env</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">env</span><span class="p">[</span><span class="s1">&#39;SNAPPY_STORE_NO_CDN&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;1&#39;</span>
+    <span class="k">for</span> <span class="n">snap</span> <span class="ow">in</span> <span class="n">snap_names</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">commands</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="s1">&#39;snap&#39;</span><span class="p">,</span> <span class="s1">&#39;download&#39;</span><span class="p">,</span> <span class="n">snap</span><span class="p">])</span>
+        <span class="k">except</span> <span class="n">ProcessExecutionError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s2">&quot;WARNING: Could not download snap &#39;{snap_name}&#39;: {error}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                <span class="n">snap_name</span><span class="o">=</span><span class="n">snap</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)))</span>
+    <span class="k">with</span> <span class="n">chdir</span><span class="p">(</span><span class="n">targetdir</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">cmd</span> <span class="ow">in</span> <span class="n">commands</span><span class="p">:</span>
+            <span class="n">subp</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">env</span><span class="o">=</span><span class="n">env</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">glob</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s1">&#39;*.snap&#39;</span><span class="p">),</span>  <span class="n">glob</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s1">&#39;*.assert&#39;</span><span class="p">))</span>
+    <span class="k">return</span> <span class="p">([],</span> <span class="p">[])</span>
+
+
+<span class="k">def</span> <span class="nf">create_local_snap_seed</span><span class="p">(</span><span class="n">snap_names</span><span class="p">,</span> <span class="n">targetdir</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Creates a snap mirror in targetdir.</span>
+
+<span class="sd">    Downloads the snap_names from the snapstore and creates a local</span>
+<span class="sd">    seed directory from which snaps will be auto-installed.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">snap_names</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">snap_names</span><span class="p">)</span>
+    <span class="n">snapsdir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">targetdir</span><span class="p">,</span> <span class="s1">&#39;snaps&#39;</span><span class="p">)</span>
+    <span class="n">ensure_dir</span><span class="p">(</span><span class="n">snapsdir</span><span class="p">)</span>
+    <span class="n">assertdir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">targetdir</span><span class="p">,</span> <span class="s1">&#39;assertions&#39;</span><span class="p">)</span>
+    <span class="n">ensure_dir</span><span class="p">(</span><span class="n">assertdir</span><span class="p">)</span>
+    <span class="n">model_out</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">subp</span><span class="p">([</span>
+        <span class="s1">&#39;snap&#39;</span><span class="p">,</span> <span class="s1">&#39;known&#39;</span><span class="p">,</span> <span class="s1">&#39;--remote&#39;</span><span class="p">,</span> <span class="s1">&#39;model&#39;</span><span class="p">,</span> <span class="s1">&#39;series=16&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;model=generic-classic&#39;</span><span class="p">,</span> <span class="s1">&#39;brand-id=generic&#39;</span><span class="p">],</span> <span class="n">capture</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+    <span class="n">write_file</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">assertdir</span><span class="p">,</span> <span class="s1">&#39;generic-classic.model&#39;</span><span class="p">),</span> <span class="n">model_out</span><span class="p">)</span>
+    <span class="n">match</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span>
+        <span class="s1">r&#39;.*sign-key-sha3-384: (?P&lt;account_key&gt;[^\n]+).*&#39;</span><span class="p">,</span>
+        <span class="n">model_out</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="n">re</span><span class="o">.</span><span class="n">DOTALL</span><span class="p">)</span>
+    <span class="n">account_key</span> <span class="o">=</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="s1">&#39;account_key&#39;</span><span class="p">)</span>
+    <span class="n">account_key_out</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">subp</span><span class="p">([</span>
+        <span class="s1">&#39;snap&#39;</span><span class="p">,</span> <span class="s1">&#39;known&#39;</span><span class="p">,</span> <span class="s1">&#39;--remote&#39;</span><span class="p">,</span> <span class="s1">&#39;account-key&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;public-key-sha3-384={key}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">account_key</span><span class="p">)])</span>
+    <span class="n">write_file</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">assertdir</span><span class="p">,</span> <span class="s1">&#39;generic.account-key&#39;</span><span class="p">),</span> <span class="n">account_key_out</span><span class="p">)</span>
+    <span class="n">account_out</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">subp</span><span class="p">([</span>
+        <span class="s1">&#39;snap&#39;</span><span class="p">,</span> <span class="s1">&#39;known&#39;</span><span class="p">,</span> <span class="s1">&#39;--remote&#39;</span><span class="p">,</span> <span class="s1">&#39;account&#39;</span><span class="p">,</span> <span class="s1">&#39;account-id=generic&#39;</span><span class="p">])</span>
+    <span class="n">write_file</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">assertdir</span><span class="p">,</span> <span class="s1">&#39;generic.account&#39;</span><span class="p">),</span> <span class="n">account_out</span><span class="p">)</span>
+    <span class="n">snapfiles</span><span class="p">,</span> <span class="n">assertfiles</span> <span class="o">=</span> <span class="n">download_snaps</span><span class="p">(</span><span class="n">snap_names</span><span class="p">,</span> <span class="n">snapsdir</span><span class="p">)</span>
+    <span class="c1"># move assert files to assertions dir</span>
+    <span class="k">for</span> <span class="n">assertfile</span> <span class="ow">in</span> <span class="n">assertfiles</span><span class="p">:</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">snapsdir</span><span class="p">,</span> <span class="n">assertfile</span><span class="p">),</span>
+                  <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">assertdir</span><span class="p">,</span> <span class="n">assertfile</span><span class="p">))</span>
+
+    <span class="n">seedfile</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">targetdir</span><span class="p">,</span> <span class="s1">&#39;seed.yaml&#39;</span><span class="p">)</span>
+    <span class="n">content</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;snaps:&quot;</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">snapfile</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">snapfiles</span><span class="p">)):</span>
+        <span class="n">content</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="s2">&quot; - name: {snap_name}</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="s2">&quot;   channel: stable</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="s2">&quot;   file: {snap_file}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                <span class="n">snap_name</span><span class="o">=</span><span class="n">snap_names</span><span class="p">[</span><span class="n">index</span><span class="p">],</span> <span class="n">snap_file</span><span class="o">=</span><span class="n">snapfile</span><span class="p">))</span>
+    <span class="n">write_file</span><span class="p">(</span><span class="n">seedfile</span><span class="p">,</span> <span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">content</span><span class="p">))</span>
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s1">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="n">create_local_snap_seed</span><span class="p">([</span><span class="s1">&#39;core&#39;</span><span class="p">,</span> <span class="s1">&#39;vlc&#39;</span><span class="p">],</span> <span class="n">SNAP_SEED_DIR</span><span class="p">)</span>
+</pre></div>
+
+
+<h2>Seed snaps through curtin config</h2>
+<p>Curtin provides facility to write content into the target disk by specifying <a href="http://curtin.readthedocs.io/en/latest/topics/config.html#write-files">write_files configuration</a> and <a href="http://curtin.readthedocs.io/en/latest/topics/config.html?highlight=late_commands#stages">late_commands</a>. Below is an abridged configuration section which writes the python script above in curtin's write_files and runs it in late_commands.</p>
+<div class="highlight"><pre><span class="n">write_files</span><span class="p">:</span>
+  <span class="n">setup_snap_seed</span><span class="p">:</span>
+    <span class="n">path</span><span class="p">:</span> <span class="o">/</span><span class="n">tmp</span><span class="o">/</span><span class="n">create_snap_preseed</span><span class="o">.</span><span class="n">py</span>
+    <span class="n">content</span><span class="p">:</span> <span class="o">|</span>
+      <span class="sd">&#39;&#39;&#39;Simple script to create a snap seed directory.&#39;&#39;&#39;</span>
+
+      <span class="kn">import</span> <span class="nn">glob</span> 
+      <span class="c1"># rest of script</span>
+      <span class="o">...</span>
+
+<span class="n">late_commands</span><span class="p">:</span>
+    <span class="n">run_snap_seed_setup</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;curtin&quot;</span><span class="p">,</span> <span class="s2">&quot;in-target&quot;</span><span class="p">,</span> <span class="s2">&quot;--&quot;</span><span class="p">,</span> <span class="n">python3</span><span class="p">,</span> <span class="o">/</span><span class="n">tmp</span><span class="o">/</span><span class="n">create_snap_preseed</span><span class="o">.</span><span class="n">py</span><span class="p">]</span>
+</pre></div>
+
+
+<h2>MAAS talking to curtin</h2>
+<p>MAAS allows you to provide custom curtin configuration to a matching node based on /etc/maas/preseeds/curtin_userdata_* files. Let's create a curtin preseed file for all amd64 xenial systems.</p>
+<div class="highlight"><pre>cd /etc/maas/preseeds/;
+cp curtin_userdata curtin_userdata_ubuntu_amd64_generic_xenial
+# 1. Add run_snap_seed_setup line to the existing late_commands section
+# 2. Add write_files section included above
+</pre></div>
+
+
+<p>Now, anytime MAAS deploys ubuntu amd64 generic xenial systems, they'll all get vlc snaps installed. You can now watch all the movies you really to on any system your employer owns :).</p>
+<h2>Retrospective: better alternatives for snap installs</h2>
+<p>Since MAAS drives curtin for installs, seeding snaps in an image before the system boots is compelling in a couple of situations:
+ * MAAS can deliver a private snap to the image which is not hosted in a public snap store (firmware updates, security fixes etc)
+ * The deployed machines have limited network connectivity to the snap store behind a firewall
+ * You have some private snap credentials you don't want exposed on the deployed machines, so you keep them only on your MAAS server and use them only from curtin.</p>
+<p><strong>If those cases don't necessarily apply, it is probably best to use cloud-init for the following reasons:</strong>
+ * Since cloud-init runs after curtin MAAS-deployed nodes, you can leverage cloud-init's features 'for free'
+ *  Pre-seeded snaps can't actually install until snapd starts after networking is up. This is during cloud-init's init-network stage anyway.
+     * By preseeding snaps, we have only shifted the actual snap download time into curtin's setup stage instead of cloud-init's.
+ * Use a generic approach: Cloud-init's <a href="https://cloudinit.readthedocs.io/en/latest/topics/modules.html#snappy">snappy module config</a> supports a simple option to declare desired snappy packages in <strong>#cloud-config</strong> files which work on almost any cloud you need, including your MAAS managed hardware.
+ * In contrast to seeding snaps, cloud-init takes care of installing snap-core dependency automatically.</p>
+<h4>Here is a sample #cloud-config file you could provide at instance deployment time in most major clouds.</h4>
+<div class="highlight"><pre>#cloud-config
+snappy:
+    system_snappy: true  # allow snap installs on non-snappy systems
+    packages: [canonical-livepatch]
+</pre></div>
+
+
+<p>Thanks for staying in touch, I'll get back to our regularly scheduled cloud-init posts in our next post 'cloud-init subcommands'.</p>
+    </div><!-- /.entry-content -->
+
+  </article>
+</section>
+        <section id="extras" class="body">
+                <div class="blogroll">
+                        <h2>blogroll</h2>
+                        <ul>
+                            <li><a href="http://ubuntu.com/">Ubuntu</a></li>
+                            <li><a href="https://landscape.canonical.com/">Landscape</a></li>
+                            <li><a href="https://cloudinit.readthedocs.io/en/latest/">Cloud-init</a></li>
+                        </ul>
+                </div><!-- /.blogroll -->
+                <div class="social">
+                        <h2>social</h2>
+                        <ul>
+                            <li><a href="https://blackboxsw.github.io/feeds/all.atom.xml" type="application/atom+xml" rel="alternate">atom feed</a></li>
+
+                            <li><a href="http://github.com/blackboxsw">Github</a></li>
+                            <li><a href="https://twitter.com/blackbox_sw">Twitter</a></li>
+                            <li><a href="https://webchat.freenode.net/?channels=cloud-init">IRC- blackboxsw @ Freenode #cloud-init</a></li>
+                        </ul>
+                </div><!-- /.social -->
+        </section><!-- /#extras -->
+
+        <footer id="contentinfo" class="body">
+                <address id="about" class="vcard body">
+                Proudly powered by <a href="http://getpelican.com/">Pelican</a>, which takes great advantage of <a href="http://python.org">Python</a>.
+                </address><!-- /#about -->
+
+                <p>The theme is by <a href="http://coding.smashingmagazine.com/2009/08/04/designing-a-html-5-layout-from-scratch/">Smashing Magazine</a>, thanks!</p>
+        </footer><!-- /#contentinfo -->
+
+    <script type="text/javascript">
+    var _gaq = _gaq || [];
+    _gaq.push(['_setAccount', 'UA-50554247-2']);
+    _gaq.push(['_trackPageview']);
+    (function() {
+        var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+        ga.src = 'https://ssl.google-analytics.com/ga.js';
+        var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+    })();
+    </script>
+</body>
+</html>
