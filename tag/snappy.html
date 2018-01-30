@@ -63,7 +63,7 @@ snap known --remote model series=16 model=generic-classic brand-id=generic &gt; 
 
 ACCOUNT_KEY=`awk &#39;/sign-key-sha3-384/{print $2}&#39; generic-classic.model`;
 
-snap known --remote account-key public-key-sha3-384=<span class="cp">${</span><span class="n">ACCOUNT_KEY</span><span class="cp">}</span> &gt; generic.acccout-key;
+snap known --remote account-key public-key-sha3-384=<span class="cp">${</span><span class="n">ACCOUNT_KEY</span><span class="cp">}</span> &gt; generic.account-key;
 
 snap known --remote account account-id=generic &gt; generic.account;
 
