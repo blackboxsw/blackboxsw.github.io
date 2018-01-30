@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom"><title>BlackBox Blog</title><link href="https://blackboxsw.github.io/" rel="alternate"></link><link href="https://blackboxsw.github.io/feeds/cloud-init.atom.xml" rel="self"></link><id>https://blackboxsw.github.io/</id><updated>2018-01-22T22:31:00+00:00</updated><entry><title>Seed snaps using MAAS</title><link href="https://blackboxsw.github.io/seed-snaps-using-maas.html" rel="alternate"></link><updated>2018-01-22T22:31:00+00:00</updated><author><name>blackboxsw@gmail.com</name></author><id>tag:blackboxsw.github.io,2018-01-22:seed-snaps-using-maas.html</id><summary type="html">&lt;p&gt;Or otherwise entitled: Where my week went....&lt;/p&gt;
-&lt;p&gt;MAAS quickly deploys machines by providing configuration to the fast pasth installer &lt;a href="http://curtin.readthedocs.io"&gt;curtin&lt;/a&gt;. &lt;a href="https://snapcraft.io"&gt;Snappy&lt;/a&gt; supports setting up a seed directory containing local snaps and snap assertions which snapd installs on first boot. This post below is a catalog of how I seeded some local snaps which got subsequently installed as the MAAS-deployed node booted.&lt;/p&gt;
+&lt;p&gt;MAAS quickly deploys machines by providing configuration to the fast path installer &lt;a href="http://curtin.readthedocs.io"&gt;curtin&lt;/a&gt;. &lt;a href="https://snapcraft.io"&gt;Snappy&lt;/a&gt; supports setting up a seed directory containing local snaps and snap assertions which snapd installs on first boot. This post below is a catalog of how I seeded some local snaps which got subsequently installed as the MAAS-deployed node booted.&lt;/p&gt;
 &lt;p&gt;TLDR: Use &lt;a href="https://cloudinit.readthedocs.io/en/latest/topics/modules.html#snappy"&gt;cloud-init&lt;/a&gt; :)&lt;/p&gt;
 &lt;h2&gt;Snappy seed directory&lt;/h2&gt;
 &lt;p&gt;As of snap version 2.30, seed directories can be provided to a system image by creating a seed directory in an image the looks like the following:&lt;/p&gt;
@@ -18,7 +18,7 @@
 cd /var/lib/snapd/seed/snaps;
 # Download the published snaps and their related assert files
 # core snap is required for seeding
-snap download core; snap download &lt;span class="nt"&gt;&amp;lt;yourpublishedsnap&amp;gt;&lt;/span&gt;;
+snap download core; snap download &lt;span class="nt"&gt;&amp;lt;yourpublishedsnap&amp;gt;&lt;/span&gt; # optionally provide --edge or --beta channel;
 
 # Move assert files downloaded into assertions subdir
 mv *assert ../assertions;
@@ -38,6 +38,7 @@ echo &amp;quot;snaps:&amp;quot; &amp;gt; /var/lib/snapd/seed/seed.yaml;
 for assertfile in *assert; do
     awk &amp;#39;/snap-name/{SNAP=$2} /snap-revision:/ {VERSION=$2} END {printf &amp;quot; - name: %s\n   channel: stable\n   file: %s_%s.snap\n&amp;quot;, SNAP, SNAP , VERSION} &lt;span class="nv"&gt;$assertfile&lt;/span&gt; &amp;gt;&amp;gt; /var/lib/snapd/seed/seed.yaml;
 done;
+# Note classic snaps require a &amp;quot;classic: true&amp;quot; attribute the seed file
 &lt;/pre&gt;&lt;/div&gt;
 
 
@@ -115,6 +116,7 @@ done;
     &lt;span class="n"&gt;seedfile&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;os&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;path&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;join&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;targetdir&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;seed.yaml&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
     &lt;span class="n"&gt;content&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;snaps:&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;
     &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;index&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;snapfile&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="nb"&gt;enumerate&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="nb"&gt;sorted&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;snapfiles&lt;/span&gt;&lt;span class="p"&gt;)):&lt;/span&gt;
+        &lt;span class="c1"&gt;# For classic snaps, append &amp;#39;classic: true&amp;#39; to the specific section&lt;/span&gt;
         &lt;span class="n"&gt;content&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;append&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;
             &lt;span class="s2"&gt;&amp;quot; - name: {snap_name}&lt;/span&gt;&lt;span class="se"&gt;\n&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;&lt;/span&gt;
             &lt;span class="s2"&gt;&amp;quot;   channel: stable&lt;/span&gt;&lt;span class="se"&gt;\n&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;&lt;/span&gt;
@@ -155,17 +157,23 @@ cp curtin_userdata curtin_userdata_ubuntu_amd64_generic_xenial
 
 &lt;p&gt;Now, anytime MAAS deploys ubuntu amd64 generic xenial systems, they'll all get vlc snaps installed. You can now watch all the movies you really to on any system your employer owns :).&lt;/p&gt;
 &lt;h2&gt;Retrospective: better alternatives for snap installs&lt;/h2&gt;
-&lt;p&gt;Since MAAS drives curtin for installs, seeding snaps in an image before the system boots is compelling in a couple of situations:
- * MAAS can deliver a private snap to the image which is not hosted in a public snap store (firmware updates, security fixes etc)
- * The deployed machines have limited network connectivity to the snap store behind a firewall
- * You have some private snap credentials you don't want exposed on the deployed machines, so you keep them only on your MAAS server and use them only from curtin.&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;If those cases don't necessarily apply, it is probably best to use cloud-init for the following reasons:&lt;/strong&gt;
- * Since cloud-init runs after curtin MAAS-deployed nodes, you can leverage cloud-init's features 'for free'
- *  Pre-seeded snaps can't actually install until snapd starts after networking is up. This is during cloud-init's init-network stage anyway.
-     * By preseeding snaps, we have only shifted the actual snap download time into curtin's setup stage instead of cloud-init's.
- * Use a generic approach: Cloud-init's &lt;a href="https://cloudinit.readthedocs.io/en/latest/topics/modules.html#snappy"&gt;snappy module config&lt;/a&gt; supports a simple option to declare desired snappy packages in &lt;strong&gt;#cloud-config&lt;/strong&gt; files which work on almost any cloud you need, including your MAAS managed hardware.
- * In contrast to seeding snaps, cloud-init takes care of installing snap-core dependency automatically.&lt;/p&gt;
-&lt;h4&gt;Here is a sample #cloud-config file you could provide at instance deployment time in most major clouds.&lt;/h4&gt;
+&lt;p&gt;Since MAAS drives curtin for installs, seeding snaps in an image before the system boots is compelling in a couple of situations:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;MAAS can deliver a private snap to the image which is not hosted in a public snap store (firmware updates, security fixes etc)&lt;/li&gt;
+&lt;li&gt;The deployed machines have limited network connectivity to the snap store behind a firewall&lt;/li&gt;
+&lt;li&gt;You have some private snap credentials you don't want exposed on the deployed machines, so you keep them only on your MAAS server and use them only from curtin.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;&lt;strong&gt;If those cases don't necessarily apply, it is probably best to use cloud-init for the following reasons:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Since cloud-init runs after curtin MAAS-deployed nodes, you can leverage cloud-init's features 'for free'&lt;/li&gt;
+&lt;li&gt;Pre-seeded snaps can't actually install until snapd starts after networking is up. This is during cloud-init's init-network stage anyway.&lt;ul&gt;
+&lt;li&gt;By preseeding snaps, we have only shifted the actual snap download time into curtin's setup stage instead of cloud-init's.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;Use a generic approach: Cloud-init's &lt;a href="https://cloudinit.readthedocs.io/en/latest/topics/modules.html#snappy"&gt;snappy module config&lt;/a&gt; supports a simple option to declare desired snappy packages in &lt;strong&gt;#cloud-config&lt;/strong&gt; files which work on almost any cloud you need, including your MAAS managed hardware.&lt;/li&gt;
+&lt;li&gt;In contrast to seeding snaps, cloud-init takes care of installing snap-core dependency automatically.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h4&gt;Here is a sample #cloud-config file you could provide when deploying your instance in most major clouds.&lt;/h4&gt;
 &lt;div class="highlight"&gt;&lt;pre&gt;#cloud-config
 snappy:
     system_snappy: true  # allow snap installs on non-snappy systems
