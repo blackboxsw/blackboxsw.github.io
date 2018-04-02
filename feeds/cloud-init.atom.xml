@@ -1,5 +1,123 @@
 <?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom"><title>BlackBox Blog</title><link href="https://blackboxsw.github.io/" rel="alternate"></link><link href="https://blackboxsw.github.io/feeds/cloud-init.atom.xml" rel="self"></link><id>https://blackboxsw.github.io/</id><updated>2018-01-22T22:31:00+00:00</updated><entry><title>Seed snaps using MAAS</title><link href="https://blackboxsw.github.io/seed-snaps-using-maas.html" rel="alternate"></link><updated>2018-01-22T22:31:00+00:00</updated><author><name>blackboxsw@gmail.com</name></author><id>tag:blackboxsw.github.io,2018-01-22:seed-snaps-using-maas.html</id><summary type="html">&lt;p&gt;Or otherwise entitled: Where my week went....&lt;/p&gt;
+<feed xmlns="http://www.w3.org/2005/Atom"><title>BlackBox Blog</title><link href="https://blackboxsw.github.io/" rel="alternate"></link><link href="https://blackboxsw.github.io/feeds/cloud-init.atom.xml" rel="self"></link><id>https://blackboxsw.github.io/</id><updated>2018-04-02T16:35:00+00:00</updated><entry><title>Cloud-init v.18.2: CLI subcommands</title><link href="https://blackboxsw.github.io/cloud-init-v182-cli-subcommands.html" rel="alternate"></link><updated>2018-04-02T16:35:00+00:00</updated><author><name>blackboxsw@gmail.com</name></author><id>tag:blackboxsw.github.io,2018-04-02:cloud-init-v182-cli-subcommands.html</id><summary type="html">&lt;p&gt;&lt;img alt="Clouds in arid landscape" src="/images/cloud_arid.png" title="Cloud-init EC2" /&gt;&lt;/p&gt;
+&lt;p&gt;Cloud-init published its second release of 2018: version 18.2. Among many notable features in the &lt;a href="https://lists.launchpad.net/cloud-init/msg00144.html"&gt;18.1 release&lt;/a&gt; and the &lt;a href="https://lists.launchpad.net/cloud-init/msg00145.html"&gt;18.2 release&lt;/a&gt;, the cloud-init team has been adding some polish to our CLI tooling to make cloud-init easier to inspect and interact with. I will give a run down of some of the new commandline tools that cloud-init offers and why you might care.&lt;/p&gt;
+&lt;h2&gt;status: What is cloud-init up to?&lt;/h2&gt;
+&lt;p&gt;First, &lt;strong&gt;cloud-init status&lt;/strong&gt; gives simple human-readable or programmatic output for what cloud-init is doing and whether it has finished successfully. It can be used as a sanity check on a machine or in scripts to block until cloud-init has completed successfully.&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;$ cloud-init status --long
+status: running
+time: Fri, &lt;span class="m"&gt;30&lt;/span&gt; Mar &lt;span class="m"&gt;2018&lt;/span&gt; 04:07:48 +0000
+detail:
+Running in stage: modules-config
+
+&lt;span class="c1"&gt;# Cloud-init reports if it it still in progress&lt;/span&gt;
+root@x12:~# cloud-init status --long
+status: running
+time: Mon, &lt;span class="m"&gt;02&lt;/span&gt; Apr &lt;span class="m"&gt;2018&lt;/span&gt; 22:16:01 +0000
+detail:
+Running in stage: init
+
+&lt;span class="c1"&gt;# Error conditions are bubbled up to the CLI&lt;/span&gt;
+$ cloud-init status
+status: error
+$ cloud-init status --long
+status: error
+time: Mon, &lt;span class="m"&gt;02&lt;/span&gt; Apr &lt;span class="m"&gt;2018&lt;/span&gt; 20:54:13 +0000
+detail:
+&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;ntp&amp;#39;&lt;/span&gt;, TypeError&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;argument of type &amp;#39;NoneType&amp;#39; is not iterable&amp;quot;&lt;/span&gt;,&lt;span class="o"&gt;))&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;People no longer have to hunt for tracebacks or errors in &lt;strong&gt;/var/log/cloud-init.log&lt;/strong&gt;. No longer would you have to parse &lt;strong&gt;/run/cloud-init/result.json&lt;/strong&gt; or &lt;strong&gt;/run/cloud-init/status.json&lt;/strong&gt; to find out what stage cloud-init is in. Any of these details are now surfaced by &lt;strong&gt;cloud-init status&lt;/strong&gt;.&lt;/p&gt;
+&lt;h2&gt;status: blocking until cloud-init is done&lt;/h2&gt;
+&lt;p&gt;There have been frequent questions in &lt;a href="https://webchat.freenode.net/?channels=cloud-init"&gt;#cloud-init channel&lt;/a&gt; about how to make custom scripts or programs block until cloud-init configuration is done. Our suggestion up until now was to deliver your own systemd unit with a dependency on &lt;strong&gt;After=cloud-init.target&lt;/strong&gt;. Now that we have &lt;strong&gt;cloud-init status --wait&lt;/strong&gt;, simple scripts can block until cloud init is done. The example below instruments a reboot-cron job which will block on cloud-init completion, creating /home/ubuntu/post-cloud-init.log the moment cloud-init succeeds:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;$ cat &amp;gt; /home/ubuntu/yourscript.sh &lt;span class="s"&gt;&amp;lt;&amp;lt;EOF&lt;/span&gt;
+&lt;span class="s"&gt;#!/bin/bash&lt;/span&gt;
+&lt;span class="s"&gt;set -e&lt;/span&gt;
+&lt;span class="s"&gt;# Block until cloud-init completes&lt;/span&gt;
+&lt;span class="s"&gt;cloud-init status --wait  &amp;gt; /dev/null 2&amp;gt;&amp;amp;1&lt;/span&gt;
+&lt;span class="s"&gt;[ $? -ne 0 ] &amp;amp;&amp;amp; echo &amp;#39;Cloud-init failed&amp;#39; &amp;amp;&amp;amp; exit 1&lt;/span&gt;
+&lt;span class="s"&gt;echo &amp;#39;Cloud-init succeeded at &amp;#39; `date -R`  &amp;gt; /home/ubuntu/post-cloud-init.log&lt;/span&gt;
+&lt;span class="s"&gt;# Make your magic happen here&lt;/span&gt;
+&lt;span class="s"&gt;EOF&lt;/span&gt;
+$ chmod &lt;span class="m"&gt;755&lt;/span&gt; /home/ubuntu/yourscript.sh
+$  crontab -e 
+@reboot /home/ubuntu/yourscript.sh
+$ sudo reboot
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;h2&gt;clean: Tidy up your cloud-init instance&lt;/h2&gt;
+&lt;p&gt;The &lt;strong&gt;cloud-init clean&lt;/strong&gt; subcommand cleans up logs and cloud-init artifacts from the instance. This is an asset for ensuring a pristine environment and great for iterative development. Cloud-init operations are gated by semaphores which live in /var/lib/cloud/sem and limit the frequency with which those actions are performed. Cloud-init caches what it can so that consumers do not repay discovery costs across every reboot. The CLI now supports removal of all semaphores, caches and optionally logs so that it appears to cloud-init as a fresh machine. The next reboot of the system will re-run all discovery and configuration. Optionally, one can provide &lt;strong&gt;--logs&lt;/strong&gt; to remove /var/log/cloud-init*log files or &lt;strong&gt;--reboot&lt;/strong&gt; to reboot the system after clean.&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;# --logs removes /var/log/cloud-init*.log files 
+$ cloud-init clean --reboot --logs
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;h2&gt;collect-logs: Grab all cloud-init artifacts&lt;/h2&gt;
+&lt;p&gt;For filing bugs against cloud-init, we would like to collect a set of known artifacts and files. We have now added a &lt;strong&gt;cloud-init collect-logs&lt;/strong&gt; command which tars any content useful to someone trying to triage a cloud-init failure. It simplifies filing upstream bugs as there is only one attachment to place on a bug when you send it to us.&lt;/p&gt;
+&lt;p&gt;For Ubuntu specifically, we also built in apport hooks on top of this, so Ubuntu users can simply &lt;strong&gt;ubuntu-bug cloud-init&lt;/strong&gt; and you'll be prompted with a couple of questions to automatically create and attach logs to a launchpad bug.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;collect-logs&lt;/strong&gt; grabs the following:
+ * /var/log/cloud-init*.log
+ * /run/cloud-init
+ * cloud-init package version information
+ * dmesg
+ * journalctl output
+ * optionally, user-data configuration if &lt;strong&gt;--userdata-include&lt;/strong&gt; is specified
+ * on ubuntu: &lt;strong&gt;ubuntu-bug cloud-init&lt;/strong&gt; also prompts you to tell the bug the cloud you are running on&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;# Create cloud-init.tar.gz in your current working dir
+$ cloud-init collect-logs
+# Alternately on ubuntu
+$ ubuntu-bug cloud-init
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;h2&gt;analyze: We care about cloud-init's performance on your cloud so you don't have to&lt;/h2&gt;
+&lt;p&gt;During our release cycles we strive to get cloud-init out of your way so you can get to the important business ahead of you. To do this it is imperative for us to refine and monitor the speed with which cloud-init can get your machine configured and operational.&lt;/p&gt;
+&lt;p&gt;To assess how performant cloud-init is, &lt;a href="https://launchpad.net/~raharper"&gt;Ryan Harper&lt;/a&gt; introduced a tool which takes cloud-init's event data and analyzes that data to determine how much time is spent by cloud-init in any of the discovery and configuraiton stages cloud-init runs. The &lt;strong&gt;cloud-init analyze&lt;/strong&gt; tool, similar to systemd-analyze, gives us the ability to &lt;strong&gt;show&lt;/strong&gt; total exectution time of each boot and cloud-init stage as well as &lt;strong&gt;blame&lt;/strong&gt; to biggest consumers of clock-time during a given boot.&lt;/p&gt;
+&lt;p&gt;Already reports from this tool have given us leverage to avoid costly Python library imports where unnecessary and rework expensive logic during the discovery and configuration process.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;show:&lt;/strong&gt; groups events according to cloud-init stages&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span class="err"&gt;$&lt;/span&gt; &lt;span class="n"&gt;cloud&lt;/span&gt;&lt;span class="o"&gt;-&lt;/span&gt;&lt;span class="n"&gt;init&lt;/span&gt; &lt;span class="n"&gt;analyze&lt;/span&gt; &lt;span class="n"&gt;show&lt;/span&gt;
+&lt;span class="o"&gt;--&lt;/span&gt; &lt;span class="n"&gt;Boot&lt;/span&gt; &lt;span class="n"&gt;Record&lt;/span&gt; &lt;span class="mo"&gt;01&lt;/span&gt; &lt;span class="o"&gt;--&lt;/span&gt;
+&lt;span class="n"&gt;The&lt;/span&gt; &lt;span class="n"&gt;total&lt;/span&gt; &lt;span class="n"&gt;time&lt;/span&gt; &lt;span class="n"&gt;elapsed&lt;/span&gt; &lt;span class="n"&gt;since&lt;/span&gt; &lt;span class="n"&gt;completing&lt;/span&gt; &lt;span class="n"&gt;an&lt;/span&gt; &lt;span class="n"&gt;event&lt;/span&gt; &lt;span class="n"&gt;is&lt;/span&gt; &lt;span class="n"&gt;printed&lt;/span&gt; &lt;span class="n"&gt;after&lt;/span&gt; &lt;span class="n"&gt;the&lt;/span&gt; &lt;span class="s"&gt;&amp;quot;@&amp;quot;&lt;/span&gt; &lt;span class="n"&gt;character&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;
+&lt;span class="n"&gt;The&lt;/span&gt; &lt;span class="n"&gt;time&lt;/span&gt; &lt;span class="n"&gt;the&lt;/span&gt; &lt;span class="n"&gt;event&lt;/span&gt; &lt;span class="n"&gt;takes&lt;/span&gt; &lt;span class="n"&gt;is&lt;/span&gt; &lt;span class="n"&gt;printed&lt;/span&gt; &lt;span class="n"&gt;after&lt;/span&gt; &lt;span class="n"&gt;the&lt;/span&gt; &lt;span class="s"&gt;&amp;quot;+&amp;quot;&lt;/span&gt; &lt;span class="n"&gt;character&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;
+
+&lt;span class="n"&gt;Starting&lt;/span&gt; &lt;span class="nl"&gt;stage&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="n"&gt;init&lt;/span&gt;&lt;span class="o"&gt;-&lt;/span&gt;&lt;span class="n"&gt;local&lt;/span&gt;
+&lt;span class="o"&gt;|&lt;/span&gt;&lt;span class="err"&gt;`&lt;/span&gt;&lt;span class="o"&gt;-&amp;gt;&lt;/span&gt;&lt;span class="n"&gt;no&lt;/span&gt; &lt;span class="n"&gt;cache&lt;/span&gt; &lt;span class="n"&gt;found&lt;/span&gt; &lt;span class="mf"&gt;@00.00400&lt;/span&gt;&lt;span class="n"&gt;s&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt;&lt;span class="mf"&gt;00.00100&lt;/span&gt;&lt;span class="n"&gt;s&lt;/span&gt;
+&lt;span class="o"&gt;|&lt;/span&gt;&lt;span class="err"&gt;`&lt;/span&gt;&lt;span class="o"&gt;-&amp;gt;&lt;/span&gt;&lt;span class="n"&gt;found&lt;/span&gt; &lt;span class="n"&gt;local&lt;/span&gt; &lt;span class="n"&gt;data&lt;/span&gt; &lt;span class="n"&gt;from&lt;/span&gt; &lt;span class="n"&gt;DataSourceNoCloud&lt;/span&gt; &lt;span class="mf"&gt;@00.00800&lt;/span&gt;&lt;span class="n"&gt;s&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt;&lt;span class="mf"&gt;00.09500&lt;/span&gt;&lt;span class="n"&gt;s&lt;/span&gt;
+&lt;span class="n"&gt;Finished&lt;/span&gt; &lt;span class="nl"&gt;stage&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;init&lt;/span&gt;&lt;span class="o"&gt;-&lt;/span&gt;&lt;span class="n"&gt;local&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="mf"&gt;00.15800&lt;/span&gt; &lt;span class="n"&gt;seconds&lt;/span&gt; 
+
+&lt;span class="n"&gt;Starting&lt;/span&gt; &lt;span class="nl"&gt;stage&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="n"&gt;init&lt;/span&gt;&lt;span class="o"&gt;-&lt;/span&gt;&lt;span class="n"&gt;network&lt;/span&gt;
+&lt;span class="o"&gt;|&lt;/span&gt;&lt;span class="err"&gt;`&lt;/span&gt;&lt;span class="o"&gt;-&amp;gt;&lt;/span&gt;&lt;span class="n"&gt;restored&lt;/span&gt; &lt;span class="n"&gt;from&lt;/span&gt; &lt;span class="n"&gt;cache&lt;/span&gt; &lt;span class="n"&gt;with&lt;/span&gt; &lt;span class="n"&gt;run&lt;/span&gt; &lt;span class="nl"&gt;check&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="n"&gt;DataSourceNoCloud&lt;/span&gt; &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;seed&lt;/span&gt;&lt;span class="o"&gt;=/&lt;/span&gt;&lt;span class="n"&gt;var&lt;/span&gt;&lt;span class="o"&gt;/&lt;/span&gt;&lt;span class="n"&gt;lib&lt;/span&gt;&lt;span class="o"&gt;/&lt;/span&gt;&lt;span class="n"&gt;cloud&lt;/span&gt;&lt;span class="o"&gt;/&lt;/span&gt;&lt;span class="n"&gt;seed&lt;/span&gt;&lt;span class="o"&gt;/&lt;/span&gt;&lt;span class="n"&gt;nocloud&lt;/span&gt;&lt;span class="o"&gt;-&lt;/span&gt;&lt;span class="n"&gt;net&lt;/span&gt;&lt;span class="p"&gt;][&lt;/span&gt;&lt;span class="n"&gt;dsmode&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="n"&gt;net&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="mf"&gt;@00.77100&lt;/span&gt;&lt;span class="n"&gt;s&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt;&lt;span class="mf"&gt;00.00300&lt;/span&gt;&lt;span class="n"&gt;s&lt;/span&gt;
+&lt;span class="p"&gt;...&lt;/span&gt;
+&lt;span class="n"&gt;Finished&lt;/span&gt; &lt;span class="nl"&gt;stage&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;init&lt;/span&gt;&lt;span class="o"&gt;-&lt;/span&gt;&lt;span class="n"&gt;network&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="mf"&gt;00.68900&lt;/span&gt; &lt;span class="n"&gt;seconds&lt;/span&gt; 
+&lt;span class="p"&gt;...&lt;/span&gt;
+&lt;span class="n"&gt;Total&lt;/span&gt; &lt;span class="nl"&gt;Time&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="mf"&gt;3.96800&lt;/span&gt; &lt;span class="n"&gt;seconds&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;&lt;strong&gt;blame:&lt;/strong&gt; orders the report by most expensive operations&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;$ cloud-init analyze blame
+
+-- Boot Record &lt;span class="m"&gt;01&lt;/span&gt; --
+     01.95200s &lt;span class="o"&gt;(&lt;/span&gt;modules-config/config-snap&lt;span class="o"&gt;)&lt;/span&gt;
+     00.76500s &lt;span class="o"&gt;(&lt;/span&gt;modules-config/config-grub-dpkg&lt;span class="o"&gt;)&lt;/span&gt;
+     00.37400s &lt;span class="o"&gt;(&lt;/span&gt;init-network/config-ssh&lt;span class="o"&gt;)&lt;/span&gt;
+     00.23000s &lt;span class="o"&gt;(&lt;/span&gt;modules-config/config-apt-configure&lt;span class="o"&gt;)&lt;/span&gt;
+     00.13400s &lt;span class="o"&gt;(&lt;/span&gt;init-network/config-users-groups&lt;span class="o"&gt;)&lt;/span&gt;
+     00.09500s &lt;span class="o"&gt;(&lt;/span&gt;init-local/search-NoCloud&lt;span class="o"&gt;)&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;h2&gt;More info&lt;/h2&gt;
+&lt;p&gt;Check out the &lt;a href="http://cloudinit.readthedocs.io/en/latest/"&gt;cloud-init Read the Docs&lt;/a&gt; for more updates on &lt;a href="http://cloudinit.readthedocs.io/en/latest/topics/capabilities.html#cli-subcommand-details"&gt;CLI subcommands&lt;/a&gt; as we add them. And, as always, join us on on &lt;a href="https://webchat.freenode.net/?channels=cloud-init"&gt;IRC @ Freenode's #cloud-init channel&lt;/a&gt;&lt;/p&gt;
+&lt;h2&gt;Stay tuned&lt;/h2&gt;
+&lt;p&gt;Thanks for checking in, here are some thoughts in the blog bag for one of our next adventures&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;supercharge your cloud-init iterative development using lxd&lt;/li&gt;
+&lt;li&gt;using python-boto3 for speedy integration testing on EC2&lt;/li&gt;
+&lt;li&gt;Making EC2 and OpenStack boots faster&lt;/li&gt;
+&lt;li&gt;cloud-init cloud-config schema annotations and why humans stink&lt;/li&gt;
+&lt;/ul&gt;</summary><category term="cloud-init"></category><category term="scripting"></category><category term="CLI"></category></entry><entry><title>Seed snaps using MAAS</title><link href="https://blackboxsw.github.io/seed-snaps-using-maas.html" rel="alternate"></link><updated>2018-01-22T22:31:00+00:00</updated><author><name>blackboxsw@gmail.com</name></author><id>tag:blackboxsw.github.io,2018-01-22:seed-snaps-using-maas.html</id><summary type="html">&lt;p&gt;Or otherwise entitled: Where my week went....&lt;/p&gt;
 &lt;p&gt;MAAS quickly deploys machines by providing configuration to the fast path installer &lt;a href="http://curtin.readthedocs.io"&gt;curtin&lt;/a&gt;. &lt;a href="https://snapcraft.io"&gt;Snappy&lt;/a&gt; supports setting up a seed directory containing local snaps and snap assertions which snapd installs on first boot. This post below is a catalog of how I seeded some local snaps which got subsequently installed as the MAAS-deployed node booted.&lt;/p&gt;
 &lt;p&gt;TLDR: Use &lt;a href="https://cloudinit.readthedocs.io/en/latest/topics/modules.html#snappy"&gt;cloud-init&lt;/a&gt; :)&lt;/p&gt;
 &lt;h2&gt;Snappy seed directory&lt;/h2&gt;
