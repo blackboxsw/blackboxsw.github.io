@@ -95,14 +95,16 @@ $ cloud-init clean --reboot --logs
 <h2>collect-logs: Grab all cloud-init artifacts</h2>
 <p>For filing bugs against cloud-init, we would like to collect a set of known artifacts and files. We have now added a <strong>cloud-init collect-logs</strong> command which tars any content useful to someone trying to triage a cloud-init failure. It simplifies filing upstream bugs as there is only one attachment to place on a bug when you send it to us.</p>
 <p>For Ubuntu specifically, we also built in apport hooks on top of this, so Ubuntu users can simply <strong>ubuntu-bug cloud-init</strong> and you'll be prompted with a couple of questions to automatically create and attach logs to a launchpad bug.</p>
-<p><strong>collect-logs</strong> grabs the following:
- * /var/log/cloud-init*.log
- * /run/cloud-init
- * cloud-init package version information
- * dmesg
- * journalctl output
- * optionally, user-data configuration if <strong>--userdata-include</strong> is specified
- * on ubuntu: <strong>ubuntu-bug cloud-init</strong> also prompts you to tell the bug the cloud you are running on</p>
+<p><strong>collect-logs</strong> grabs the following:</p>
+<ul>
+<li>/var/log/cloud-init*.log</li>
+<li>/run/cloud-init</li>
+<li>cloud-init package version information</li>
+<li>dmesg</li>
+<li>journalctl output</li>
+<li>optionally, user-data configuration if <strong>--userdata-include</strong> is specified</li>
+<li>on ubuntu: <strong>ubuntu-bug cloud-init</strong> also prompts you to tell the bug the cloud you are running on</li>
+</ul>
 <div class="highlight"><pre># Create cloud-init.tar.gz in your current working dir
 $ cloud-init collect-logs
 # Alternately on ubuntu
